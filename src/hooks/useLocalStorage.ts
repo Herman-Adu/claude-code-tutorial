@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export function useLocalStorage<T>(
   key: string,
@@ -8,19 +8,24 @@ export function useLocalStorage<T>(
 ): [T, (value: T | ((prev: T) => T)) => void, boolean] {
   const [storedValue, setStoredValue] = useState<T>(initialValue);
   const [isHydrated, setIsHydrated] = useState(false);
+  const initialValueRef = useRef(initialValue);
+
+  // Update ref when initialValue changes (for key change scenarios)
+  initialValueRef.current = initialValue;
 
   useEffect(() => {
     try {
       const item = window.localStorage.getItem(key);
       if (item) {
         setStoredValue(JSON.parse(item));
+      } else {
+        setStoredValue(initialValueRef.current);
       }
     } catch (error) {
       console.error('Error reading from localStorage:', error);
     }
     setIsHydrated(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [key]);
 
   const setValue = useCallback(
     (value: T | ((prev: T) => T)) => {

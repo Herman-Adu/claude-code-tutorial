@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef, useId } from 'react';
 
 interface ModalProps {
   isOpen: boolean;
@@ -10,6 +10,10 @@ interface ModalProps {
 }
 
 export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previousActiveElement = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -19,48 +23,109 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
     [onClose]
   );
 
+  // Focus trap - keep focus within modal
+  const handleTabKey = useCallback((e: KeyboardEvent) => {
+    if (e.key !== 'Tab' || !modalRef.current) return;
+
+    const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    if (e.shiftKey && document.activeElement === firstElement) {
+      e.preventDefault();
+      lastElement?.focus();
+    } else if (!e.shiftKey && document.activeElement === lastElement) {
+      e.preventDefault();
+      firstElement?.focus();
+    }
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
+      // Store the currently focused element to restore later
+      previousActiveElement.current = document.activeElement as HTMLElement;
+
       document.addEventListener('keydown', handleEscape);
+      document.addEventListener('keydown', handleTabKey);
       document.body.style.overflow = 'hidden';
+
+      // Focus the modal after a brief delay to ensure it's rendered
+      requestAnimationFrame(() => {
+        const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        firstFocusable?.focus();
+      });
     }
     return () => {
       document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleTabKey);
       document.body.style.overflow = 'unset';
+
+      // Restore focus to the element that opened the modal
+      if (previousActiveElement.current) {
+        previousActiveElement.current.focus();
+      }
     };
-  }, [isOpen, handleEscape]);
+  }, [isOpen, handleEscape, handleTabKey]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="presentation"
+    >
       <div
-        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
-      <div className="relative z-50 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-slate-800">{title}</h2>
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative z-50 w-full max-w-[calc(100vw-2rem)] sm:max-w-md max-h-[85vh] flex flex-col glass-lg p-6"
+      >
+        <div className="mb-6 flex items-center justify-between border-b border-white/30 pb-4 flex-shrink-0">
+          <h2
+            id={titleId}
+            className="text-xl font-semibold tracking-tight text-slate-700"
+          >
+            {title}
+          </h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            aria-label="Close modal"
+            className="flex items-center justify-center w-9 h-9 rounded-xl bg-white/60 text-slate-500 border border-white/40 shadow-[0_4px_12px_rgba(100,100,140,0.1)] hover:bg-rose-50 hover:text-rose-500 hover:shadow-[0_6px_16px_rgba(240,150,150,0.15)] transition-all"
           >
             <svg
-              className="h-5 w-5"
+              className="h-4 w-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              strokeWidth={2}
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2}
                 d="M6 18L18 6M6 6l12 12"
               />
             </svg>
           </button>
         </div>
-        {children}
+        <div
+          className="overflow-y-auto flex-1 -mr-2 pr-2"
+          role="region"
+          aria-label="Modal content"
+          tabIndex={0}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

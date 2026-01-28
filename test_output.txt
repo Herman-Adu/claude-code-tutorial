@@ -1,0 +1,33 @@
+
+> kanban-board@0.1.0 test
+> vitest kanban-workflows.test.tsx --reporter=verbose
+
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90mC:/Users/herma/source/repository/claude-code-tutorial[39m
+
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mCreate Task Workflow[2m > [22mshould create a task and display it in the correct column[33m 907[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mCreate Task Workflow[2m > [22mshould show error message when task creation fails[33m 337[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mCreate Task Workflow[2m > [22mshould handle optimistic update with rollback on error[33m 390[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mEdit Task Workflow[2m > [22mshould edit a task and persist changes[33m 870[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mEdit Task Workflow[2m > [22mshould handle partial updates correctly[33m 418[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mDelete Task Workflow[2m > [22mshould delete a task and remove it from the board[32m 125[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mDelete Task Workflow[2m > [22mshould allow canceling task deletion[32m 125[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mDelete Task Workflow[2m > [22mshould rollback deletion on server error[32m 155[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mMove Task Workflow[2m > [22mshould move a task between columns[32m 32[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mMove Task Workflow[2m > [22mshould rollback move on server error[32m 128[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mState Persistence[2m > [22mshould load tasks from server on initial mount[32m 14[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mState Persistence[2m > [22mshould handle empty task list gracefully[32m 15[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mState Persistence[2m > [22mshould handle server error during initial load[32m 17[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mMultiple Operations Workflow[2m > [22mshould handle creating multiple tasks in sequence[33m 753[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mMultiple Operations Workflow[2m > [22mshould handle create, edit, and delete in sequence[33m 875[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mMultiple Operations Workflow[2m > [22mshould handle multiple tasks across different columns[32m 9[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mMultiple Operations Workflow[2m > [22mshould clear errors when performing new operations[33m 770[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mEdge Cases[2m > [22mshould handle rapid successive operations[33m 609[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mEdge Cases[2m > [22mshould handle tasks with special characters in title[33m 797[2mms[22m[39m
+ [32m✓[39m src/__tests__/integration/kanban-workflows.test.tsx[2m > [22mKanban Board Integration Tests[2m > [22mEdge Cases[2m > [22mshould display loading indicator during operations[33m 390[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m20 passed[39m[22m[90m (20)[39m
+[2m   Start at [22m 19:08:04
+[2m   Duration [22m 8.94s[2m (transform 210ms, setup 367ms, import 283ms, tests 7.74s, environment 379ms)[22m
+

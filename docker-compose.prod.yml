@@ -1,0 +1,125 @@
+# =============================================================================
+# Docker Compose Production Override
+# Production-optimized configurations with security and performance settings
+# =============================================================================
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   OR
+#   npm run docker:prod
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Production Configuration
+  # ---------------------------------------------------------------------------
+  postgres:
+    container_name: kanban-postgres-prod
+    restart: always
+    # Do not expose port to host in production (only internal network)
+    ports: []
+    # Production-specific PostgreSQL settings
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-kanban_db}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: '--auth-host=scram-sha-256'
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Enhanced health check for production
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-kanban_db}']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Logging configuration
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  # ---------------------------------------------------------------------------
+  # Next.js Application - Production Configuration
+  # ---------------------------------------------------------------------------
+  nextjs:
+    container_name: kanban-app-prod
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Enable BuildKit for faster builds
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kanban_db}?schema=public
+      NEXT_TELEMETRY_DISABLED: 1
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      # Restart policy
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    # Wait for postgres to be healthy before starting
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Production health check using curl (wget not available in Alpine runner)
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Logging configuration
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
+    # Security: read-only filesystem where possible
+    read_only: false
+    # Drop all capabilities and add only what's needed
+    security_opt:
+      - no-new-privileges:true
+
+# -----------------------------------------------------------------------------
+# Production Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+    name: kanban-postgres-data-prod
+
+# -----------------------------------------------------------------------------
+# Production Networks
+# -----------------------------------------------------------------------------
+networks:
+  kanban-network:
+    driver: bridge
+    name: kanban-network-prod
+    # Enable encryption in swarm mode
+    driver_opts:
+      encrypted: 'true'

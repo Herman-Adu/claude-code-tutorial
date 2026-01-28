@@ -1,0 +1,75 @@
+# =============================================================================
+# Docker Compose Development Override
+# Development-specific configurations with hot reload support
+# =============================================================================
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   OR
+#   npm run docker:dev
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Development Configuration
+  # ---------------------------------------------------------------------------
+  postgres:
+    # Expose port to host for direct database access during development
+    ports:
+      - '${POSTGRES_PORT:-5434}:5432'
+
+  # ---------------------------------------------------------------------------
+  # Next.js Application - Development Configuration
+  # ---------------------------------------------------------------------------
+  nextjs:
+    container_name: kanban-app-dev
+    # Use development Dockerfile target or build from source
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kanban}:${POSTGRES_PASSWORD:-kanban_secret}@postgres:5432/${POSTGRES_DB:-kanban_db}?schema=public
+      NEXT_TELEMETRY_DISABLED: 1
+      # Enable more verbose logging in development
+      DEBUG: prisma:*
+      # Watchpack polling for file changes in Docker
+      WATCHPACK_POLLING: 'true'
+      CHOKIDAR_USEPOLLING: 'true'
+    ports:
+      - '${APP_PORT:-3000}:3000'
+      # Expose debugging port for Node.js inspector
+      - '9229:9229'
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src:cached
+      - ./public:/app/public:cached
+      - ./prisma:/app/prisma:cached
+      # Mount configuration files
+      - ./next.config.ts:/app/next.config.ts:cached
+      - ./tailwind.config.ts:/app/tailwind.config.ts:cached
+      - ./postcss.config.mjs:/app/postcss.config.mjs:cached
+      - ./tsconfig.json:/app/tsconfig.json:cached
+      # Use named volume for node_modules to avoid conflicts
+      - node_modules_dev:/app/node_modules
+      # Use named volume for Next.js build cache
+      - next_cache_dev:/app/.next
+    # Override restart policy for development
+    restart: 'no'
+    # Enable stdin for interactive commands
+    stdin_open: true
+    tty: true
+
+# -----------------------------------------------------------------------------
+# Development Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  node_modules_dev:
+    driver: local
+    name: kanban-node-modules-dev
+  next_cache_dev:
+    driver: local
+    name: kanban-next-cache-dev

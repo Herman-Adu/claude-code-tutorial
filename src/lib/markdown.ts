@@ -3,33 +3,69 @@ import path from 'path';
 
 /**
  * Validates and sanitizes a file path to prevent directory traversal attacks.
- * Ensures the resolved path stays within the docs directory.
+ * Ensures the resolved path stays within the base directory using multiple
+ * validation layers for defense in depth.
+ *
+ * Security considerations:
+ * - Blocks obvious traversal patterns (.., absolute paths, null bytes)
+ * - Normalizes path separators for cross-platform consistency
+ * - Uses path.relative() as an additional validation layer
+ * - Performs case-insensitive comparison on Windows/macOS filesystems
  *
  * @param filePath - The relative file path to validate (e.g., 'getting-started/project-setup.md')
  * @param baseDir - The base directory that the path must stay within
  * @returns The sanitized absolute path, or null if the path is invalid
  */
 function sanitizePath(filePath: string, baseDir: string): string | null {
-  // Normalize the path to handle different OS path separators
+  // Normalize path separators to forward slash for consistent handling
   const normalizedPath = filePath.replace(/\\/g, '/');
 
-  // Block obvious traversal attempts
+  // Block obvious traversal attempts and dangerous patterns
   if (
-    normalizedPath.includes('..') ||
-    normalizedPath.startsWith('/') ||
-    normalizedPath.includes(':') ||
-    normalizedPath.includes('\0')
+    normalizedPath.includes('..') ||        // Parent directory traversal
+    normalizedPath.startsWith('/') ||       // Absolute paths (Unix)
+    normalizedPath.includes(':') ||         // Drive letters (Windows) or protocol schemes
+    normalizedPath.includes('\0') ||        // Null byte injection
+    normalizedPath.includes('%00') ||       // URL-encoded null byte
+    normalizedPath.includes('%2e%2e') ||    // URL-encoded ..
+    normalizedPath.includes('%2E%2E')       // URL-encoded .. (uppercase)
   ) {
     return null;
   }
 
-  // Resolve the full path
+  // Resolve the full paths
   const resolvedBase = path.resolve(baseDir);
   const resolvedPath = path.resolve(baseDir, normalizedPath);
 
-  // Ensure the resolved path is within the base directory
-  if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {
+  // Use path.relative() as an additional validation layer
+  // If the relative path starts with '..', the resolved path escapes the base
+  const relativePath = path.relative(resolvedBase, resolvedPath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
     return null;
+  }
+
+  // Perform case-sensitive or case-insensitive comparison based on platform
+  // Windows and macOS have case-insensitive filesystems by default
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    // Case-insensitive comparison for Windows and macOS
+    const resolvedPathLower = resolvedPath.toLowerCase();
+    const resolvedBaseLower = resolvedBase.toLowerCase();
+
+    // Must start with base directory (with separator) or be exactly the base
+    if (
+      !resolvedPathLower.startsWith(resolvedBaseLower + path.sep.toLowerCase()) &&
+      resolvedPathLower !== resolvedBaseLower
+    ) {
+      return null;
+    }
+  } else {
+    // Case-sensitive comparison for Linux and other platforms
+    if (
+      !resolvedPath.startsWith(resolvedBase + path.sep) &&
+      resolvedPath !== resolvedBase
+    ) {
+      return null;
+    }
   }
 
   return resolvedPath;

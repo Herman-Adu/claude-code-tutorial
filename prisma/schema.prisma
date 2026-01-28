@@ -1,0 +1,143 @@
+// Prisma schema for Kanban Board application
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// Authentication Models (NextAuth.js / Auth.js)
+// =============================================================================
+
+/// User model for authentication and authorization.
+/// Supports both OAuth and credentials-based authentication.
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String    @unique @db.VarChar(255)
+  name          String?   @db.VarChar(100)
+  image         String?   @db.Text
+  passwordHash  String?   @map("password_hash") @db.VarChar(255)
+  emailVerified DateTime? @map("email_verified")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  accounts Account[]
+  sessions Session[]
+  tasks    Task[]
+
+  // Indexes for frequently queried fields
+  @@index([email], name: "idx_user_email")
+  @@index([createdAt], name: "idx_user_created_at")
+
+  @@map("users")
+}
+
+/// Account model for OAuth provider accounts.
+/// Links OAuth accounts (GitHub, Google, etc.) to users.
+model Account {
+  id                String  @id @default(uuid()) @db.Uuid
+  userId            String  @map("user_id") @db.Uuid
+  type              String  @db.VarChar(50)
+  provider          String  @db.VarChar(50)
+  providerAccountId String  @map("provider_account_id") @db.VarChar(255)
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String? @db.VarChar(50)
+  scope             String? @db.Text
+  id_token          String? @db.Text
+  session_state     String? @db.Text
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Unique constraint for provider + account ID combination
+  @@unique([provider, providerAccountId])
+  @@index([userId], name: "idx_account_user_id")
+
+  @@map("accounts")
+}
+
+/// Session model for managing user sessions.
+/// Used when database session strategy is enabled.
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  sessionToken String   @unique @map("session_token") @db.VarChar(255)
+  expires      DateTime
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_session_user_id")
+  @@index([expires], name: "idx_session_expires")
+
+  @@map("sessions")
+}
+
+/// Verification token for email verification.
+/// Used for passwordless sign-in and email verification flows.
+model VerificationToken {
+  identifier String   @db.VarChar(255)
+  token      String   @unique @db.VarChar(255)
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// =============================================================================
+// Application Models
+// =============================================================================
+
+// Priority levels for tasks
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// Column/status identifiers for the Kanban board
+enum ColumnId {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+}
+
+/// Task model representing a single task on the Kanban board.
+/// Each task belongs to a user (owner) and has a status, priority, and tags.
+model Task {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String   @db.VarChar(100)
+  description String   @db.VarChar(500)
+  priority    Priority @default(MEDIUM)
+  tags        Json     @default("[]") @db.JsonB
+  columnId    ColumnId @default(TODO)
+  categories  Json     @default("[]") @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Calendar fields (Sprint 3)
+  dueDate  DateTime? @map("due_date")
+  dueTime  String?   @map("due_time") @db.VarChar(5) // "HH:MM" format
+  isAllDay Boolean   @default(true) @map("is_all_day")
+
+  // Owner relationship - links task to a user
+  ownerId String @map("owner_id") @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // Indexes for frequently queried fields
+  @@index([columnId], name: "idx_task_column_id")
+  @@index([priority], name: "idx_task_priority")
+  @@index([createdAt], name: "idx_task_created_at")
+  @@index([ownerId], name: "idx_task_owner_id")
+  @@index([dueDate], name: "idx_task_due_date")
+
+  @@map("tasks")
+}

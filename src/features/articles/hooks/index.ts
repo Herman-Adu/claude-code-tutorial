@@ -1,0 +1,1 @@
+export { useArticlesData } from './useArticlesData';

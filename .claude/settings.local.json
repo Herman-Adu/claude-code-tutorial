@@ -10,7 +10,12 @@
       "Bash(timeout:*)",
       "Bash(ping:*)",
       "Bash(taskkill:*)",
-      "Bash(cmd.exe /c \"taskkill /F /IM node.exe\")"
-    ]
+      "LS",
+      "Grep",
+      "Glob",
+      "TodoRead",
+      "WebSearch"
+    ],
+    "ask": ["WebFetch", "TodoWrite"]
   }
 }
