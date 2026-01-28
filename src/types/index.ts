@@ -41,6 +41,60 @@ export interface KanbanState {
 }
 
 // ============================================================================
+// Search and Filter Types (Phase 2B)
+// ============================================================================
+
+/**
+ * Options for filtering tasks in search queries.
+ * All fields are optional to enable flexible filter combinations.
+ */
+export interface FilterOptions {
+  /** Text search query for title and description */
+  searchQuery?: string;
+  /** Filter by priority level */
+  priority?: Priority | null;
+  /** Filter by column/status */
+  columnId?: ColumnId | null;
+  /** Filter by categories (tasks must have ALL specified categories) */
+  categories?: string[];
+  /** Filter by due date range */
+  dateRange?: {
+    start: Date;
+    end: Date;
+  };
+  /** Maximum number of results to return */
+  limit?: number;
+  /** Offset for pagination */
+  offset?: number;
+}
+
+/**
+ * Result from a task search operation.
+ * Includes both the filtered tasks and total count for pagination.
+ */
+export interface SearchResult {
+  /** Array of tasks matching the search criteria */
+  tasks: Task[];
+  /** Total count of matching tasks (before pagination) */
+  total: number;
+}
+
+/**
+ * A user's saved filter configuration.
+ * Allows quick access to frequently used filter combinations.
+ */
+export interface SavedFilterPreset {
+  /** Unique identifier */
+  id: string;
+  /** User-defined name for the preset */
+  name: string;
+  /** The filter configuration */
+  filters: FilterOptions;
+  /** ISO timestamp when preset was created */
+  createdAt?: string;
+}
+
+// ============================================================================
 // Database Types (uppercase - matching Prisma schema)
 // ============================================================================
 

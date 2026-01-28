@@ -68,7 +68,10 @@ interface UseKanbanReturn {
   isHydrated: boolean;
   isLoading: boolean;
   error: string | null;
+  /** Adds a task synchronously (fire-and-forget, for backward compatibility) */
   addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  /** Adds a task and returns the new task ID (for operations that need to wait for completion) */
+  addTaskAsync: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string | null>;
   updateTask: (id: string, updates: Partial<Omit<Task, 'id' | 'createdAt'>>) => void;
   deleteTask: (id: string) => void;
   moveTask: (taskId: string, newColumnId: LegacyColumnId, targetTaskId?: string) => void;
@@ -292,11 +295,24 @@ export function useKanban(): UseKanbanReturn {
 
   /**
    * Adds a new task with optimistic update.
+   * Fire-and-forget version for backward compatibility.
    */
   const addTask = useCallback(
     (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
       const storeData = toStoreTaskData(taskData);
       storeAddTask(storeData, createTask);
+    },
+    [storeAddTask]
+  );
+
+  /**
+   * Adds a new task and returns the new task ID.
+   * Use this when you need to perform operations after task creation (e.g., setting labels).
+   */
+  const addTaskAsync = useCallback(
+    async (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<string | null> => {
+      const storeData = toStoreTaskData(taskData);
+      return storeAddTask(storeData, createTask);
     },
     [storeAddTask]
   );
@@ -363,6 +379,7 @@ export function useKanban(): UseKanbanReturn {
     isLoading,
     error,
     addTask,
+    addTaskAsync,
     updateTask,
     deleteTask,
     moveTask,

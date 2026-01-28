@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   DndContext,
   DragOverlay,
@@ -14,12 +15,30 @@ import {
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useKanban } from '../hooks/useKanban';
+import { useLabels } from '../hooks/useLabels';
 import { COLUMNS } from '@/constants';
 import { Task, ColumnId } from '@/types';
 import { KanbanColumn } from './KanbanColumn';
 import { TaskCardOverlay } from './TaskCard';
 import { TaskForm } from './TaskForm';
+import { LabelFilter } from './LabelFilter';
+import { LabelManager } from './LabelManager';
+import { SearchFilterBar } from './SearchFilterBar';
+import { FilterPanel } from './FilterPanel';
+import { FilterChips } from './FilterChips';
+import { SavedFiltersDropdown } from './SavedFiltersDropdown';
+import { SaveFilterModal } from './SaveFilterModal';
 import { Modal } from '@/components/ui/Modal';
+import { useLabelsStore } from '@/store/labels';
+import {
+  useKanbanStore,
+  useSearchQuery,
+  useFilters,
+  useHasActiveFilters,
+  useActiveFilterCount,
+  type StoreFilterOptions,
+} from '@/store/kanban';
+import { cn } from '@/lib/utils';
 
 /**
  * Error Toast Component
@@ -119,17 +138,137 @@ export function KanbanBoard({ showHeader = true }: KanbanBoardProps) {
     isHydrated,
     isLoading,
     error,
-    addTask,
+    addTaskAsync,
     updateTask,
     deleteTask,
     moveTask,
     getTasksByColumn,
     clearError,
   } = useKanban();
+  const { setTaskLabels } = useLabels();
+  const taskLabelsMap = useLabelsStore((state) => state.taskLabels);
+  const storeSetTaskLabels = useLabelsStore((state) => state.setTaskLabels);
+
+  // Search and filter state from Zustand
+  const searchQuery = useSearchQuery();
+  const filters = useFilters();
+  const hasActiveFilters = useHasActiveFilters();
+  const activeFilterCount = useActiveFilterCount();
+  const setSearchQuery = useKanbanStore((state) => state.setSearchQuery);
+  const setFilters = useKanbanStore((state) => state.setFilters);
+  const setFilter = useKanbanStore((state) => state.setFilter);
+  const getFilteredTasks = useKanbanStore((state) => state.getFilteredTasks);
+
+  // URL query params for shareable filters
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const urlUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialMount = useRef(true);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showLabelManager, setShowLabelManager] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showSaveFilterModal, setShowSaveFilterModal] = useState(false);
+  const [labelFilterIds, setLabelFilterIds] = useState<string[]>([]);
+
+  // Load filters from URL on mount
+  useEffect(() => {
+    if (!isInitialMount.current) return;
+    isInitialMount.current = false;
+
+    const urlSearch = searchParams.get('search');
+    const urlPriority = searchParams.get('priority');
+    const urlColumn = searchParams.get('column');
+    const urlCategories = searchParams.get('categories');
+    const urlStart = searchParams.get('start');
+    const urlEnd = searchParams.get('end');
+
+    const filtersFromUrl: StoreFilterOptions = {};
+
+    if (urlSearch) {
+      setSearchQuery(urlSearch);
+    }
+
+    if (urlPriority && ['LOW', 'MEDIUM', 'HIGH'].includes(urlPriority.toUpperCase())) {
+      filtersFromUrl.priority = urlPriority.toUpperCase() as StoreFilterOptions['priority'];
+    }
+
+    if (urlColumn && ['TODO', 'IN_PROGRESS', 'COMPLETED'].includes(urlColumn.toUpperCase())) {
+      filtersFromUrl.columnId = urlColumn.toUpperCase() as StoreFilterOptions['columnId'];
+    }
+
+    if (urlCategories) {
+      // Decode URL-encoded categories to handle special characters like commas, ampersands, etc.
+      filtersFromUrl.categories = urlCategories
+        .split(',')
+        .filter(Boolean)
+        .map((cat) => decodeURIComponent(cat));
+    }
+
+    if (urlStart && urlEnd) {
+      filtersFromUrl.dateRange = { start: urlStart, end: urlEnd };
+    }
+
+    if (Object.keys(filtersFromUrl).length > 0) {
+      setFilters(filtersFromUrl);
+    }
+  }, [searchParams, setSearchQuery, setFilters]);
+
+  // Update URL when filters change (debounced)
+  useEffect(() => {
+    if (isInitialMount.current) return;
+
+    // Clear existing timeout
+    if (urlUpdateTimeoutRef.current) {
+      clearTimeout(urlUpdateTimeoutRef.current);
+    }
+
+    // Debounce URL updates
+    urlUpdateTimeoutRef.current = setTimeout(() => {
+      const params = new URLSearchParams();
+
+      if (searchQuery) {
+        params.set('search', searchQuery);
+      }
+
+      if (filters.priority) {
+        params.set('priority', filters.priority.toLowerCase());
+      }
+
+      if (filters.columnId) {
+        params.set('column', filters.columnId.toLowerCase().replace('_', '-'));
+      }
+
+      if (filters.categories && filters.categories.length > 0) {
+        // Encode each category to handle special characters (commas, ampersands, equals, percent, hash, spaces, unicode)
+        const encodedCategories = filters.categories
+          .map((cat) => encodeURIComponent(cat))
+          .join(',');
+        params.set('categories', encodedCategories);
+      }
+
+      if (filters.dateRange) {
+        params.set('start', filters.dateRange.start);
+        params.set('end', filters.dateRange.end);
+      }
+
+      const queryString = params.toString();
+      const newUrl = queryString ? `${pathname}?${queryString}` : pathname;
+
+      // Update URL without causing navigation
+      router.replace(newUrl, { scroll: false });
+    }, 500);
+
+    return () => {
+      if (urlUpdateTimeoutRef.current) {
+        clearTimeout(urlUpdateTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, filters, pathname, router]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -203,17 +342,183 @@ export function KanbanBoard({ showHeader = true }: KanbanBoardProps) {
   }, [deleteConfirmId, deleteTask]);
 
   const handleSubmitTask = useCallback(
-    (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
+    async (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> & { labelIds?: string[] }) => {
+      const { labelIds, ...taskDataWithoutLabels } = taskData;
+
       if (editingTask) {
-        updateTask(editingTask.id, taskData);
+        updateTask(editingTask.id, taskDataWithoutLabels);
+        // Update labels if provided
+        if (labelIds) {
+          try {
+            await setTaskLabels(editingTask.id, labelIds);
+          } catch (error) {
+            console.error('Failed to save labels:', error);
+            // Error is already handled by setTaskLabels which sets store error
+          }
+        }
       } else {
-        addTask(taskData);
+        // For new tasks, wait for the task to be created then set labels
+        const newTaskId = await addTaskAsync(taskDataWithoutLabels);
+
+        // If task was created and labels were selected, persist them
+        if (newTaskId && labelIds && labelIds.length > 0) {
+          try {
+            // Update store immediately for optimistic UI
+            storeSetTaskLabels(newTaskId, labelIds);
+
+            // Persist to database
+            const success = await setTaskLabels(newTaskId, labelIds);
+            if (!success) {
+              // Rollback store if persistence failed
+              storeSetTaskLabels(newTaskId, []);
+              // Error message is already shown via setTaskLabels
+            }
+          } catch (error) {
+            console.error('Failed to save labels for new task:', error);
+            // Rollback store on error
+            storeSetTaskLabels(newTaskId, []);
+            // The error will be shown via the labels store error state
+          }
+        }
       }
       setIsModalOpen(false);
       setEditingTask(null);
     },
-    [editingTask, addTask, updateTask]
+    [editingTask, addTaskAsync, updateTask, setTaskLabels, storeSetTaskLabels]
   );
+
+  // Filter tasks by search, filters, and labels
+  const getFilteredTasksByColumn = useCallback(
+    (columnId: ColumnId) => {
+      let columnTasks = getTasksByColumn(columnId);
+
+      // Apply search query filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        columnTasks = columnTasks.filter(
+          (task) =>
+            task.title.toLowerCase().includes(query) ||
+            task.description.toLowerCase().includes(query)
+        );
+      }
+
+      // Apply priority filter
+      if (filters.priority) {
+        columnTasks = columnTasks.filter(
+          (task) => task.priority.toLowerCase() === filters.priority!.toLowerCase()
+        );
+      }
+
+      // Apply categories filter
+      if (filters.categories && filters.categories.length > 0) {
+        columnTasks = columnTasks.filter((task) => {
+          const taskCategories = task.categories || [];
+          return filters.categories!.every((cat) =>
+            taskCategories.some((tc) => tc.toLowerCase() === cat.toLowerCase())
+          );
+        });
+      }
+
+      // Apply date range filter
+      if (filters.dateRange) {
+        const startDate = new Date(filters.dateRange.start);
+        const endDate = new Date(filters.dateRange.end);
+        columnTasks = columnTasks.filter((task) => {
+          if (!task.dueDate) return false;
+          const dueDate = new Date(task.dueDate);
+          return dueDate >= startDate && dueDate <= endDate;
+        });
+      }
+
+      // Apply label filter (if any labels selected)
+      if (labelFilterIds.length > 0) {
+        columnTasks = columnTasks.filter((task) => {
+          const taskLabelIds = taskLabelsMap.get(task.id) || [];
+          return taskLabelIds.some((labelId) => labelFilterIds.includes(labelId));
+        });
+      }
+
+      return columnTasks;
+    },
+    [getTasksByColumn, searchQuery, filters, labelFilterIds, taskLabelsMap]
+  );
+
+  // Count filtered tasks for column headers
+  const getFilteredTaskCount = useMemo(() => {
+    const counts: Record<string, number> = {};
+    COLUMNS.forEach((column) => {
+      counts[column.id] = getFilteredTasksByColumn(column.id).length;
+    });
+    return counts;
+  }, [getFilteredTasksByColumn]);
+
+  // Check if non-label filters are active (for label filter count display)
+  const hasNonLabelFilters = useMemo(() => {
+    return !!(
+      searchQuery.trim() ||
+      filters.priority ||
+      (filters.categories && filters.categories.length > 0) ||
+      filters.dateRange
+    );
+  }, [searchQuery, filters]);
+
+  // Get task IDs filtered by non-label filters (for label filter count calculation)
+  const filteredTaskIdsWithoutLabelFilter = useMemo(() => {
+    if (!hasNonLabelFilters) {
+      return undefined; // No need to calculate if no filters active
+    }
+
+    const allFilteredTaskIds: string[] = [];
+
+    tasks.forEach((task) => {
+      // Apply search query filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        if (
+          !task.title.toLowerCase().includes(query) &&
+          !task.description.toLowerCase().includes(query)
+        ) {
+          return; // Skip this task
+        }
+      }
+
+      // Apply priority filter
+      if (filters.priority) {
+        if (task.priority.toLowerCase() !== filters.priority.toLowerCase()) {
+          return;
+        }
+      }
+
+      // Apply categories filter
+      if (filters.categories && filters.categories.length > 0) {
+        const taskCategories = task.categories || [];
+        const hasAllCategories = filters.categories.every((cat) =>
+          taskCategories.some((tc) => tc.toLowerCase() === cat.toLowerCase())
+        );
+        if (!hasAllCategories) {
+          return;
+        }
+      }
+
+      // Apply date range filter
+      if (filters.dateRange) {
+        if (!task.dueDate) {
+          return;
+        }
+        const startDate = new Date(filters.dateRange.start);
+        const endDate = new Date(filters.dateRange.end);
+        const dueDate = new Date(task.dueDate);
+        if (dueDate < startDate || dueDate > endDate) {
+          return;
+        }
+      }
+
+      // Task passed all filters (except label filter)
+      allFilteredTaskIds.push(task.id);
+    });
+
+    return allFilteredTaskIds;
+  }, [tasks, searchQuery, filters, hasNonLabelFilters]);
 
   if (!isHydrated) {
     return (
@@ -236,15 +541,144 @@ export function KanbanBoard({ showHeader = true }: KanbanBoardProps) {
 
       <div className={`mx-auto max-w-7xl px-4 ${showHeader ? 'py-6 md:py-10' : 'py-0'} md:px-8`}>
         {showHeader && (
-          <header className="mb-8 md:mb-10 text-center">
-            <div className="inline-block glass-lg px-8 py-4 mb-4">
-              <h1 className="text-3xl md:text-5xl font-semibold tracking-tight bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 bg-clip-text text-transparent">
-                Kanban Board
-              </h1>
+          <header className="mb-8 md:mb-10">
+            <div className="text-center mb-4">
+              <div className="inline-block glass-lg px-8 py-4 mb-4">
+                <h1 className="text-3xl md:text-5xl font-semibold tracking-tight bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 bg-clip-text text-transparent">
+                  Kanban Board
+                </h1>
+              </div>
+              <p className="text-slate-500 font-medium tracking-wide" aria-live="polite">
+                Organize your tasks with drag and drop
+              </p>
             </div>
-            <p className="text-slate-500 font-medium tracking-wide" aria-live="polite">
-              Organize your tasks with drag and drop
-            </p>
+
+            {/* Search and Filter Toolbar */}
+            <div className="space-y-3 mt-6">
+              {/* Search bar row */}
+              <div className="flex items-center gap-3">
+                {/* Search bar - takes most space */}
+                <div className="flex-1 max-w-md">
+                  <SearchFilterBar placeholder="Search tasks by title or description..." />
+                </div>
+
+                {/* Filter button with popover */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowFilterPanel(!showFilterPanel)}
+                    className={cn(
+                      'flex items-center justify-center w-9 h-9',
+                      'text-slate-500 hover:text-slate-700',
+                      'bg-white/60 backdrop-blur-sm hover:bg-white/80',
+                      'border border-white/40 rounded-xl',
+                      'shadow-[0_2px_8px_rgba(100,100,140,0.08)]',
+                      'hover:shadow-[0_4px_12px_rgba(100,100,140,0.12)]',
+                      'transition-all duration-200',
+                      showFilterPanel && 'bg-white/80 shadow-[0_4px_12px_rgba(100,100,140,0.12)]'
+                    )}
+                    aria-label={`Filter tasks${activeFilterCount > 0 ? ` (${activeFilterCount} active)` : ''}`}
+                    aria-expanded={showFilterPanel}
+                    aria-haspopup="dialog"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                      />
+                    </svg>
+                    {/* Active filter badge */}
+                    {activeFilterCount > 0 && (
+                      <span
+                        className={cn(
+                          'absolute -top-1 -right-1 w-4 h-4',
+                          'flex items-center justify-center',
+                          'text-[10px] font-bold text-white',
+                          'bg-gradient-to-br from-sky-400 to-indigo-500',
+                          'rounded-full shadow-[0_2px_8px_rgba(100,150,230,0.4)]'
+                        )}
+                      >
+                        {activeFilterCount}
+                      </span>
+                    )}
+                  </button>
+                  <FilterPanel
+                    isOpen={showFilterPanel}
+                    onClose={() => setShowFilterPanel(false)}
+                  />
+                </div>
+
+                {/* Saved filters dropdown */}
+                <SavedFiltersDropdown />
+
+                {/* Divider */}
+                <div className="w-px h-6 bg-slate-200" aria-hidden="true" />
+
+                {/* Label filter */}
+                <LabelFilter
+                  selectedLabelIds={labelFilterIds}
+                  onFilter={setLabelFilterIds}
+                  filteredTaskIds={filteredTaskIdsWithoutLabelFilter}
+                  hasOtherFilters={hasNonLabelFilters}
+                />
+
+                {/* Manage labels button */}
+                <button
+                  type="button"
+                  onClick={() => setShowLabelManager(true)}
+                  className="glass-btn px-3 py-2 flex items-center gap-2 text-sm font-medium text-slate-600"
+                  aria-label="Manage labels"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                  </svg>
+                  <span className="hidden sm:inline">Manage Labels</span>
+                </button>
+              </div>
+
+              {/* Active filter chips */}
+              {hasActiveFilters && (
+                <div className="flex items-center gap-3">
+                  <FilterChips maxChips={5} />
+                  {/* Save current filters button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowSaveFilterModal(true)}
+                    className={cn(
+                      'text-xs font-medium text-sky-600 hover:text-sky-700',
+                      'underline underline-offset-2',
+                      'transition-colors duration-200'
+                    )}
+                  >
+                    Save filters
+                  </button>
+                </div>
+              )}
+            </div>
           </header>
         )}
 
@@ -260,7 +694,7 @@ export function KanbanBoard({ showHeader = true }: KanbanBoardProps) {
                 <KanbanColumn
                   key={column.id}
                   column={column}
-                  tasks={getTasksByColumn(column.id)}
+                  tasks={getFilteredTasksByColumn(column.id)}
                   onAddTask={handleAddTask}
                   onEditTask={handleEditTask}
                   onDeleteTask={handleDeleteTask}
@@ -318,6 +752,18 @@ export function KanbanBoard({ showHeader = true }: KanbanBoardProps) {
           </button>
         </div>
       </Modal>
+
+      {/* Label Manager Modal */}
+      <LabelManager
+        isOpen={showLabelManager}
+        onClose={() => setShowLabelManager(false)}
+      />
+
+      {/* Save Filter Preset Modal */}
+      <SaveFilterModal
+        isOpen={showSaveFilterModal}
+        onClose={() => setShowSaveFilterModal(false)}
+      />
     </div>
   );
 }

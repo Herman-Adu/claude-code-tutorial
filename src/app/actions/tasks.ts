@@ -21,13 +21,19 @@ import {
   MoveTaskSchema,
   TaskIdSchema,
   ColumnIdSchema,
+  SearchTasksInputSchema,
+  SaveFilterPresetSchema,
+  FilterPresetIdSchema,
   type CreateTaskInput,
   type UpdateTaskInput,
   type MoveTaskInput,
   type ColumnId,
+  type SearchTasksInput,
+  type SaveFilterPresetInput,
 } from '@/lib/schemas';
 import { sanitizeString } from '@/lib/utils';
 import type { Priority, ColumnId as DbColumnId } from '@/generated/prisma/enums';
+import type { InputJsonValue } from '@/generated/prisma/internal/prismaNamespace';
 
 // ============================================================================
 // Response Types
@@ -64,6 +70,24 @@ export interface TaskResponse {
   // Owner fields
   ownerName: string | null;
   ownerEmail: string;
+}
+
+/**
+ * Search result type for paginated task searches.
+ */
+export interface SearchResultResponse {
+  tasks: TaskResponse[];
+  total: number;
+}
+
+/**
+ * Saved filter preset type returned from server actions.
+ */
+export interface FilterPresetResponse {
+  id: string;
+  name: string;
+  filters: Record<string, unknown>;
+  createdAt: Date;
 }
 
 /**
@@ -704,6 +728,389 @@ export async function getTasksByDateRange(
     return {
       success: false,
       error: handleDatabaseError(error, 'getTasksByDateRange'),
+    };
+  }
+}
+
+// ============================================================================
+// Rate Limiting
+// ============================================================================
+
+/**
+ * Simple in-memory rate limiter for search requests.
+ * Limits users to 20 searches per minute to prevent DOS attacks.
+ *
+ * Note: In production with multiple server instances, this should be
+ * replaced with a distributed rate limiter (e.g., Redis-based).
+ */
+const rateLimitCache = new Map<string, { count: number; resetTime: number }>();
+
+/**
+ * Rate limit configuration for search operations.
+ */
+const RATE_LIMIT = {
+  maxRequests: 20,
+  windowMs: 60000, // 1 minute
+} as const;
+
+/**
+ * Checks and updates rate limit for a user.
+ * @param userId - The user ID to check
+ * @returns true if request is allowed, false if rate limited
+ */
+function checkRateLimit(userId: string): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const cacheKey = `search:${userId}`;
+  const existing = rateLimitCache.get(cacheKey);
+
+  // Clean up expired entries periodically
+  if (rateLimitCache.size > 1000) {
+    for (const [key, value] of rateLimitCache.entries()) {
+      if (now > value.resetTime) {
+        rateLimitCache.delete(key);
+      }
+    }
+  }
+
+  // If no existing entry or window expired, create new entry
+  if (!existing || now > existing.resetTime) {
+    rateLimitCache.set(cacheKey, {
+      count: 1,
+      resetTime: now + RATE_LIMIT.windowMs,
+    });
+    return { allowed: true, remaining: RATE_LIMIT.maxRequests - 1 };
+  }
+
+  // Check if limit exceeded
+  if (existing.count >= RATE_LIMIT.maxRequests) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  // Increment counter
+  existing.count++;
+  return { allowed: true, remaining: RATE_LIMIT.maxRequests - existing.count };
+}
+
+// ============================================================================
+// Search and Filter Server Actions (Phase 2B)
+// ============================================================================
+
+/**
+ * Searches tasks with filters and pagination.
+ * Supports full-text search on title and description using PostgreSQL ILIKE.
+ *
+ * @param input - Search parameters including query, filters, limit, and offset
+ * @returns ActionResponse with filtered tasks and total count
+ */
+export async function searchTasks(
+  input: SearchTasksInput
+): Promise<ActionResponse<SearchResultResponse>> {
+  try {
+    // Require authentication
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return {
+        success: false,
+        error: 'Authentication required',
+      };
+    }
+
+    // Rate limiting: 20 searches per minute per user
+    const rateLimitResult = checkRateLimit(userId);
+    if (!rateLimitResult.allowed) {
+      return {
+        success: false,
+        error: 'Too many searches. Please try again in 1 minute.',
+      };
+    }
+
+    // Validate input
+    const validationResult = SearchTasksInputSchema.safeParse(input);
+    if (!validationResult.success) {
+      return {
+        success: false,
+        error: formatZodErrors(validationResult.error.issues),
+      };
+    }
+
+    const { query, filters, limit, offset } = validationResult.data;
+
+    // Build where clause for filtering
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause: Record<string, any> = {
+      ownerId: userId,
+    };
+
+    // Text search on title and description using ILIKE for case-insensitive matching
+    //
+    // PERFORMANCE NOTE (Technical Debt):
+    // Current approach: Prisma's `contains` with mode: 'insensitive' translates to PostgreSQL ILIKE.
+    // - Acceptable for datasets < 10K tasks with ~200ms p95 response time
+    // - ILIKE queries don't efficiently use B-tree indexes, causing full table scans
+    //
+    // TODO: For datasets > 10K tasks, migrate to PostgreSQL full-text search (tsvector):
+    // 1. Add generated tsvector column: ALTER TABLE tasks ADD COLUMN search_vector tsvector
+    //    GENERATED ALWAYS AS (to_tsvector('english', title || ' ' || description)) STORED;
+    // 2. Create GiST index: CREATE INDEX idx_tasks_search ON tasks USING GiST(search_vector);
+    // 3. Use ts_query for searches: WHERE search_vector @@ to_tsquery('english', $1)
+    // Expected performance gain: ~50x faster for large datasets
+    //
+    if (query && query.trim().length > 0) {
+      const searchTerm = query.trim();
+      whereClause.OR = [
+        { title: { contains: searchTerm, mode: 'insensitive' } },
+        { description: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+
+    // Apply additional search query from filters if present
+    if (filters.searchQuery && filters.searchQuery.trim().length > 0) {
+      const searchTerm = filters.searchQuery.trim();
+      // If we already have an OR clause from query, we need to AND them
+      if (whereClause.OR) {
+        whereClause.AND = [
+          { OR: whereClause.OR },
+          {
+            OR: [
+              { title: { contains: searchTerm, mode: 'insensitive' } },
+              { description: { contains: searchTerm, mode: 'insensitive' } },
+            ],
+          },
+        ];
+        delete whereClause.OR;
+      } else {
+        whereClause.OR = [
+          { title: { contains: searchTerm, mode: 'insensitive' } },
+          { description: { contains: searchTerm, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    // Priority filter
+    if (filters.priority) {
+      whereClause.priority = filters.priority;
+    }
+
+    // Column/status filter
+    if (filters.columnId) {
+      whereClause.columnId = filters.columnId;
+    }
+
+    // Categories filter (JSON array containment)
+    // Tasks must have ALL specified categories
+    //
+    // PERFORMANCE NOTE:
+    // Current approach creates N separate AND conditions for N categories.
+    // Example for 3 categories: WHERE categories @> '["cat1"]' AND categories @> '["cat2"]' AND categories @> '["cat3"]'
+    //
+    // This is acceptable for typical usage (1-5 categories) with GIN index on categories column.
+    // For optimization with many categories, consider:
+    // 1. Use a single array containment check: categories @> '["cat1","cat2","cat3"]'::jsonb
+    //    This checks if all categories are contained in one operation.
+    // 2. For < 100 tasks, client-side filtering may be faster than multiple DB conditions.
+    // 3. Create GIN index if not exists: CREATE INDEX idx_tasks_categories ON tasks USING GIN(categories);
+    //
+    if (filters.categories && filters.categories.length > 0) {
+      whereClause.AND = whereClause.AND || [];
+      // Use Prisma's JsonArray operations to check if categories contains all specified values
+      // Each category is checked individually to ensure ALL are present
+      filters.categories.forEach((category) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (whereClause.AND as any[]).push({
+          categories: {
+            array_contains: [category],
+          },
+        });
+      });
+    }
+
+    // Date range filter
+    if (filters.dateRange) {
+      whereClause.dueDate = {
+        gte: filters.dateRange.start,
+        lte: filters.dateRange.end,
+      };
+    }
+
+    // Execute count query for total (for pagination)
+    const total = await prisma.task.count({ where: whereClause });
+
+    // Execute main query with pagination
+    const tasks = await prisma.task.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+      include: {
+        owner: {
+          select: { name: true, email: true },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      data: {
+        tasks: tasks.map(transformTask),
+        total,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: handleDatabaseError(error, 'searchTasks'),
+    };
+  }
+}
+
+/**
+ * Retrieves all saved filter presets for the current user.
+ *
+ * @returns ActionResponse with array of filter presets
+ */
+export async function getSavedFilterPresets(): Promise<
+  ActionResponse<FilterPresetResponse[]>
+> {
+  try {
+    // Require authentication
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return {
+        success: false,
+        error: 'Authentication required',
+      };
+    }
+
+    const presets = await prisma.savedFilterPreset.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      success: true,
+      data: presets.map((preset: { id: string; name: string; filters: unknown; createdAt: Date }) => ({
+        id: preset.id,
+        name: preset.name,
+        filters: preset.filters as Record<string, unknown>,
+        createdAt: preset.createdAt,
+      })),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: handleDatabaseError(error, 'getSavedFilterPresets'),
+    };
+  }
+}
+
+/**
+ * Saves a new filter preset for the current user.
+ *
+ * @param input - Preset name and filter configuration
+ * @returns ActionResponse with created preset or error
+ */
+export async function saveFilterPreset(
+  input: SaveFilterPresetInput
+): Promise<ActionResponse<FilterPresetResponse>> {
+  try {
+    // Require authentication
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return {
+        success: false,
+        error: 'Authentication required',
+      };
+    }
+
+    // Validate input
+    const validationResult = SaveFilterPresetSchema.safeParse(input);
+    if (!validationResult.success) {
+      return {
+        success: false,
+        error: formatZodErrors(validationResult.error.issues),
+      };
+    }
+
+    const { name, filters } = validationResult.data;
+
+    // Sanitize the preset name
+    const sanitizedName = sanitizeString(name);
+
+    // Create the preset (serialize filters to JSON)
+    const preset = await prisma.savedFilterPreset.create({
+      data: {
+        name: sanitizedName,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        filters: filters as any,
+        userId,
+      },
+    });
+
+    return {
+      success: true,
+      data: {
+        id: preset.id,
+        name: preset.name,
+        filters: preset.filters as Record<string, unknown>,
+        createdAt: preset.createdAt,
+      },
+    };
+  } catch (error) {
+    // Check for unique constraint violation (duplicate name)
+    if (isPrismaKnownError(error) && error.code === 'P2002') {
+      return {
+        success: false,
+        error: 'A preset with this name already exists',
+      };
+    }
+    return {
+      success: false,
+      error: handleDatabaseError(error, 'saveFilterPreset'),
+    };
+  }
+}
+
+/**
+ * Deletes a saved filter preset.
+ *
+ * @param presetId - UUID of the preset to delete
+ * @returns ActionResponse indicating success or error
+ */
+export async function deleteFilterPreset(
+  presetId: string
+): Promise<ActionResponse> {
+  try {
+    // Require authentication
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return {
+        success: false,
+        error: 'Authentication required',
+      };
+    }
+
+    // Validate preset ID
+    const idValidation = FilterPresetIdSchema.safeParse(presetId);
+    if (!idValidation.success) {
+      return {
+        success: false,
+        error: 'Invalid preset ID format',
+      };
+    }
+
+    // Delete with ownership check
+    await prisma.savedFilterPreset.delete({
+      where: {
+        id: presetId,
+        userId, // Ownership verification
+      },
+    });
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: handleDatabaseError(error, 'deleteFilterPreset'),
     };
   }
 }

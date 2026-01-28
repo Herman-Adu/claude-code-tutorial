@@ -58,6 +58,48 @@ export type CreateTaskData = Omit<StoreTask, 'id' | 'createdAt' | 'updatedAt'>;
 export type UpdateTaskData = Partial<Omit<StoreTask, 'id' | 'createdAt'>>;
 
 /**
+ * Filter options for task search (store version).
+ * Uses store-compatible types (uppercase enums, string dates).
+ */
+export interface StoreFilterOptions {
+  /** Text search query for title and description */
+  searchQuery?: string;
+  /** Filter by priority level */
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | null;
+  /** Filter by column/status */
+  columnId?: 'TODO' | 'IN_PROGRESS' | 'COMPLETED' | null;
+  /** Filter by categories (tasks must have ALL specified categories) */
+  categories?: string[];
+  /** Filter by due date range */
+  dateRange?: {
+    start: string; // ISO date string
+    end: string;   // ISO date string
+  };
+  /** Maximum number of results to return */
+  limit?: number;
+  /** Offset for pagination */
+  offset?: number;
+}
+
+/**
+ * Search result containing filtered tasks and pagination info.
+ */
+export interface StoreSearchResult {
+  tasks: StoreTask[];
+  total: number;
+}
+
+/**
+ * Saved filter preset structure for the store.
+ */
+export interface StoreSavedFilterPreset {
+  id: string;
+  name: string;
+  filters: StoreFilterOptions;
+  createdAt?: string;
+}
+
+/**
  * Kanban store state interface.
  */
 interface KanbanState {
@@ -68,6 +110,13 @@ interface KanbanState {
   isHydrated: boolean;
   isLoading: boolean;
   error: string | null;
+
+  // Search and filter state
+  searchQuery: string;
+  filters: StoreFilterOptions;
+  isSearching: boolean;
+  searchResults: StoreSearchResult | null;
+  savedFilterPresets: StoreSavedFilterPreset[];
 
   // Task mutations
   setTasks: (tasks: StoreTask[]) => void;
@@ -100,10 +149,23 @@ interface KanbanState {
   setError: (error: string | null) => void;
   setHydrated: (hydrated: boolean) => void;
 
+  // Search and filter methods
+  setSearchQuery: (query: string) => void;
+  setFilter: <K extends keyof StoreFilterOptions>(key: K, value: StoreFilterOptions[K]) => void;
+  setFilters: (filters: StoreFilterOptions) => void;
+  clearFilters: () => void;
+  setIsSearching: (searching: boolean) => void;
+  setSearchResults: (results: StoreSearchResult | null) => void;
+  setSavedFilterPresets: (presets: StoreSavedFilterPreset[]) => void;
+  loadSavedPreset: (preset: StoreSavedFilterPreset) => void;
+
   // Selectors (computed values)
   getTasksByColumn: (columnId: ColumnId) => StoreTask[];
   getTaskById: (id: string) => StoreTask | undefined;
   getTotalTasks: () => number;
+  getFilteredTasks: () => StoreTask[];
+  hasActiveFilters: () => boolean;
+  getActiveFilterCount: () => number;
 }
 
 // ============================================================================
@@ -172,6 +234,13 @@ export const useKanbanStore = create<KanbanState>()(
       isLoading: false,
       error: null,
 
+      // Search and filter initial state
+      searchQuery: '',
+      filters: {},
+      isSearching: false,
+      searchResults: null,
+      savedFilterPresets: [],
+
       // ========================================================================
       // State Setters
       // ========================================================================
@@ -190,6 +259,61 @@ export const useKanbanStore = create<KanbanState>()(
 
       setHydrated: (hydrated) => {
         set({ isHydrated: hydrated }, false, 'setHydrated');
+      },
+
+      // ========================================================================
+      // Search and Filter Methods
+      // ========================================================================
+
+      setSearchQuery: (query) => {
+        // Trim and limit to 200 characters
+        const trimmed = query.trim().slice(0, 200);
+        set({ searchQuery: trimmed }, false, 'setSearchQuery');
+      },
+
+      setFilter: (key, value) => {
+        set(
+          (state) => ({
+            filters: { ...state.filters, [key]: value },
+          }),
+          false,
+          `setFilter/${String(key)}`
+        );
+      },
+
+      setFilters: (filters) => {
+        set({ filters }, false, 'setFilters');
+      },
+
+      clearFilters: () => {
+        set(
+          { searchQuery: '', filters: {}, searchResults: null },
+          false,
+          'clearFilters'
+        );
+      },
+
+      setIsSearching: (searching) => {
+        set({ isSearching: searching }, false, 'setIsSearching');
+      },
+
+      setSearchResults: (results) => {
+        set({ searchResults: results }, false, 'setSearchResults');
+      },
+
+      setSavedFilterPresets: (presets) => {
+        set({ savedFilterPresets: presets }, false, 'setSavedFilterPresets');
+      },
+
+      loadSavedPreset: (preset) => {
+        set(
+          {
+            filters: preset.filters,
+            searchQuery: preset.filters.searchQuery || '',
+          },
+          false,
+          'loadSavedPreset'
+        );
       },
 
       // ========================================================================
@@ -516,6 +640,104 @@ export const useKanbanStore = create<KanbanState>()(
       getTotalTasks: () => {
         return get().tasks.length;
       },
+
+      /**
+       * Gets filtered tasks based on active search query and filters.
+       * Applies client-side filtering to the tasks in the store.
+       */
+      getFilteredTasks: () => {
+        const { tasks, searchQuery, filters } = get();
+        let filtered = [...tasks];
+
+        // Filter by search query (title and description)
+        if (searchQuery && searchQuery.trim().length > 0) {
+          const query = searchQuery.toLowerCase();
+          filtered = filtered.filter(
+            (task) =>
+              task.title.toLowerCase().includes(query) ||
+              task.description.toLowerCase().includes(query)
+          );
+        }
+
+        // Filter by searchQuery in filters object (secondary search)
+        if (filters.searchQuery && filters.searchQuery.trim().length > 0) {
+          const query = filters.searchQuery.toLowerCase();
+          filtered = filtered.filter(
+            (task) =>
+              task.title.toLowerCase().includes(query) ||
+              task.description.toLowerCase().includes(query)
+          );
+        }
+
+        // Filter by priority
+        if (filters.priority) {
+          filtered = filtered.filter((task) => task.priority === filters.priority);
+        }
+
+        // Filter by column
+        if (filters.columnId) {
+          filtered = filtered.filter((task) => task.columnId === filters.columnId);
+        }
+
+        // Filter by categories (task must have ALL specified categories)
+        if (filters.categories && filters.categories.length > 0) {
+          filtered = filtered.filter((task) => {
+            const taskCategories = task.categories || [];
+            return filters.categories!.every((cat) => taskCategories.includes(cat));
+          });
+        }
+
+        // Filter by date range
+        if (filters.dateRange) {
+          const startDate = new Date(filters.dateRange.start);
+          const endDate = new Date(filters.dateRange.end);
+          filtered = filtered.filter((task) => {
+            if (!task.dueDate) return false;
+            const dueDate = new Date(task.dueDate);
+            return dueDate >= startDate && dueDate <= endDate;
+          });
+        }
+
+        // Apply pagination if specified
+        if (filters.offset !== undefined || filters.limit !== undefined) {
+          const offset = filters.offset || 0;
+          const limit = filters.limit || 50;
+          filtered = filtered.slice(offset, offset + limit);
+        }
+
+        return filtered;
+      },
+
+      /**
+       * Checks if any filters are currently active.
+       */
+      hasActiveFilters: () => {
+        const { searchQuery, filters } = get();
+        return !!(
+          searchQuery.trim() ||
+          filters.searchQuery?.trim() ||
+          filters.priority ||
+          filters.columnId ||
+          (filters.categories && filters.categories.length > 0) ||
+          filters.dateRange
+        );
+      },
+
+      /**
+       * Gets the count of active filters for UI display.
+       */
+      getActiveFilterCount: () => {
+        const { searchQuery, filters } = get();
+        let count = 0;
+
+        if (searchQuery.trim() || filters.searchQuery?.trim()) count++;
+        if (filters.priority) count++;
+        if (filters.columnId) count++;
+        if (filters.categories && filters.categories.length > 0) count++;
+        if (filters.dateRange) count++;
+
+        return count;
+      },
     }),
     {
       name: 'kanban-store',
@@ -653,6 +875,95 @@ export function useTasksModifiedToday(): StoreTask[] {
         (task) => task.updatedAt >= todayIso && task.updatedAt < tomorrowIso
       );
     })
+  );
+}
+
+// ============================================================================
+// Search and Filter Selector Hooks
+// ============================================================================
+
+/**
+ * Hook to get the current search query.
+ */
+export function useSearchQuery(): string {
+  return useKanbanStore((state) => state.searchQuery);
+}
+
+/**
+ * Hook to get the current filters.
+ */
+export function useFilters(): StoreFilterOptions {
+  return useKanbanStore(useShallow((state) => state.filters));
+}
+
+/**
+ * Hook to get filtered tasks based on active search/filters.
+ * Uses shallow comparison to prevent unnecessary re-renders.
+ */
+export function useFilteredTasks(): StoreTask[] {
+  return useKanbanStore(useShallow((state) => state.getFilteredTasks()));
+}
+
+/**
+ * Hook to check if search is in progress.
+ */
+export function useIsSearching(): boolean {
+  return useKanbanStore((state) => state.isSearching);
+}
+
+/**
+ * Hook to get search results (for server-side search).
+ */
+export function useSearchResults(): StoreSearchResult | null {
+  return useKanbanStore(useShallow((state) => state.searchResults));
+}
+
+/**
+ * Hook to get saved filter presets.
+ */
+export function useSavedFilterPresets(): StoreSavedFilterPreset[] {
+  return useKanbanStore(useShallow((state) => state.savedFilterPresets));
+}
+
+/**
+ * Hook to check if any filters are active.
+ */
+export function useHasActiveFilters(): boolean {
+  return useKanbanStore((state) => state.hasActiveFilters());
+}
+
+/**
+ * Hook to get the count of active filters.
+ */
+export function useActiveFilterCount(): number {
+  return useKanbanStore((state) => state.getActiveFilterCount());
+}
+
+/**
+ * Hook to get all search/filter related state and actions.
+ * Useful for components that need multiple filter-related values.
+ */
+export function useSearchFilterState() {
+  return useKanbanStore(
+    useShallow((state) => ({
+      searchQuery: state.searchQuery,
+      filters: state.filters,
+      isSearching: state.isSearching,
+      searchResults: state.searchResults,
+      savedFilterPresets: state.savedFilterPresets,
+      hasActiveFilters: state.hasActiveFilters(),
+      activeFilterCount: state.getActiveFilterCount(),
+      filteredTasks: state.getFilteredTasks(),
+      // Actions
+      setSearchQuery: state.setSearchQuery,
+      setFilter: state.setFilter,
+      setFilters: state.setFilters,
+      clearFilters: state.clearFilters,
+      setIsSearching: state.setIsSearching,
+      setSearchResults: state.setSearchResults,
+      setSavedFilterPresets: state.setSavedFilterPresets,
+      loadSavedPreset: state.loadSavedPreset,
+    }))
   );
 }
 

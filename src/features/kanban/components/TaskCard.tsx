@@ -5,12 +5,16 @@ import { CSS } from '@dnd-kit/utilities';
 import { Task, Priority } from '@/types';
 import { cn } from '@/lib/utils';
 import { getCategoryColor } from '@/components/ui/Badge';
+import { LabelBadge } from '@/components/ui/LabelBadge';
+import { useTaskLabels } from '@/store/labels';
 
 interface TaskCardProps {
   task: Task;
   onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
 }
+
+const MAX_VISIBLE_LABELS = 3;
 
 const PRIORITY_CONFIG: Record<Priority, { accent: string; badge: string; badgeBg: string; label: string }> = {
   low: {
@@ -101,6 +105,12 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
 
   const priority = PRIORITY_CONFIG[task.priority];
 
+  // Get labels for this task (returns StoreLabel[] directly)
+  const labelObjects = useTaskLabels(task.id);
+
+  const visibleLabels = labelObjects.slice(0, MAX_VISIBLE_LABELS);
+  const hiddenLabelCount = labelObjects.length - MAX_VISIBLE_LABELS;
+
   if (isDragging) {
     return (
       <div
@@ -175,6 +185,23 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
           </span>
         ))}
       </div>
+
+      {/* Labels section */}
+      {labelObjects.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-slate-200/50">
+          {visibleLabels.map((label) => (
+            <LabelBadge key={label.id} label={label} size="sm" />
+          ))}
+          {hiddenLabelCount > 0 && (
+            <span
+              className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 text-slate-600"
+              title={`${hiddenLabelCount} more label${hiddenLabelCount > 1 ? 's' : ''}`}
+            >
+              +{hiddenLabelCount}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Categories section - visually distinct from tags */}
       {task.categories && task.categories.length > 0 && (

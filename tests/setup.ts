@@ -55,4 +55,10 @@ vi.mock('@/app/actions/tasks', () => ({
   moveTask: vi.fn(),
   getTasks: vi.fn(),
   getTasksByColumn: vi.fn(),
+  getTasksByDateRange: vi.fn(),
+  // Search and filter actions
+  searchTasks: vi.fn(),
+  getSavedFilterPresets: vi.fn(),
+  saveFilterPreset: vi.fn(),
+  deleteFilterPreset: vi.fn(),
 }));

@@ -20,7 +20,29 @@ export const VALIDATION = {
   MAX_NAME_LENGTH: 100,
   MIN_PASSWORD_LENGTH: 8,
   MAX_PASSWORD_LENGTH: 255,
+  // Label validation
+  MAX_LABEL_NAME_LENGTH: 100,
+  MAX_LABELS_PER_TASK: 20,
+  // Search and filter validation
+  MAX_SEARCH_QUERY_LENGTH: 200,
+  MAX_SEARCH_LIMIT: 100,
+  MIN_SEARCH_LIMIT: 1,
+  MAX_FILTER_PRESET_NAME_LENGTH: 50,
 } as const;
+
+// Preset label colors for consistent UI
+export const LABEL_COLOR_PRESETS = [
+  'red',
+  'blue',
+  'green',
+  'yellow',
+  'purple',
+  'orange',
+  'pink',
+  'cyan',
+] as const;
+
+export type LabelColorPreset = (typeof LABEL_COLOR_PRESETS)[number];
 
 /**
  * Priority enum matching Prisma schema values.
@@ -261,6 +283,174 @@ export const DeleteAccountSchema = z.object({
     }),
 });
 
+// ============================================================================
+// Label Schemas (Phase 2A)
+// ============================================================================
+
+/**
+ * Schema for validating label colors.
+ * Accepts either a preset color name or a valid hex code.
+ */
+export const LabelColorSchema = z.union([
+  z.enum(LABEL_COLOR_PRESETS),
+  z.string().regex(/^#[0-9a-fA-F]{6}$/, {
+    message: 'Invalid color format. Use a preset color or hex code (#RRGGBB)',
+  }),
+]);
+
+/**
+ * Schema for creating a new label.
+ */
+export const CreateLabelSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, { message: 'Label name is required' })
+    .max(VALIDATION.MAX_LABEL_NAME_LENGTH, {
+      message: `Label name must be ${VALIDATION.MAX_LABEL_NAME_LENGTH} characters or less`,
+    }),
+  color: LabelColorSchema,
+});
+
+/**
+ * Schema for updating an existing label.
+ * All fields are optional.
+ */
+export const UpdateLabelSchema = CreateLabelSchema.partial();
+
+/**
+ * Schema for adding a label to a task.
+ */
+export const AddLabelToTaskSchema = z.object({
+  taskId: z.string().uuid({ message: 'Invalid task ID format' }),
+  labelId: z.string().uuid({ message: 'Invalid label ID format' }),
+});
+
+/**
+ * Schema for removing a label from a task.
+ */
+export const RemoveLabelFromTaskSchema = AddLabelToTaskSchema;
+
+/**
+ * Schema for validating a single label ID parameter.
+ */
+export const LabelIdSchema = z.string().uuid({ message: 'Invalid label ID format' });
+
+// ============================================================================
+// Search and Filter Schemas (Phase 2B)
+// ============================================================================
+
+/**
+ * Schema for date range filtering.
+ * Accepts either Date objects or ISO date strings.
+ * Validates that start date is before or equal to end date.
+ */
+export const DateRangeSchema = z.object({
+  start: z.union([z.date(), z.string()]).transform((val) => val instanceof Date ? val : new Date(val)),
+  end: z.union([z.date(), z.string()]).transform((val) => val instanceof Date ? val : new Date(val)),
+}).refine((data) => data.start <= data.end, {
+  message: 'Start date must be before or equal to end date',
+  path: ['end'],
+});
+
+/**
+ * Schema for date range filtering with string inputs (for store/UI).
+ * Accepts string dates and validates format.
+ */
+export const DateRangeStringSchema = z.object({
+  start: z.string(),
+  end: z.string(),
+}).refine((data) => new Date(data.start) <= new Date(data.end), {
+  message: 'Start date must be before or equal to end date',
+  path: ['end'],
+});
+
+/**
+ * Schema for filter options used in task search.
+ * All fields are optional, enabling flexible filter combinations.
+ */
+export const FilterOptionsSchema = z.object({
+  searchQuery: z
+    .string()
+    .max(VALIDATION.MAX_SEARCH_QUERY_LENGTH, {
+      message: `Search query must be ${VALIDATION.MAX_SEARCH_QUERY_LENGTH} characters or less`,
+    })
+    .optional(),
+  priority: PrioritySchema.nullable().optional(),
+  columnId: ColumnIdSchema.nullable().optional(),
+  categories: z
+    .array(z.string().max(VALIDATION.MAX_CATEGORY_LENGTH))
+    .optional(),
+  // Accept both Date and string for date range (will be coerced to Date)
+  dateRange: z.object({
+    start: z.union([z.date(), z.string()]),
+    end: z.union([z.date(), z.string()]),
+  }).optional(),
+  limit: z
+    .number()
+    .int()
+    .min(VALIDATION.MIN_SEARCH_LIMIT, {
+      message: `Limit must be at least ${VALIDATION.MIN_SEARCH_LIMIT}`,
+    })
+    .max(VALIDATION.MAX_SEARCH_LIMIT, {
+      message: `Limit cannot exceed ${VALIDATION.MAX_SEARCH_LIMIT}`,
+    })
+    .optional(),
+  offset: z
+    .number()
+    .int()
+    .min(0, { message: 'Offset must be non-negative' })
+    .optional(),
+});
+
+/**
+ * Schema for search tasks input.
+ * Extends filter options with query parameter.
+ */
+export const SearchTasksInputSchema = z.object({
+  query: z
+    .string()
+    .max(VALIDATION.MAX_SEARCH_QUERY_LENGTH, {
+      message: `Search query must be ${VALIDATION.MAX_SEARCH_QUERY_LENGTH} characters or less`,
+    })
+    .optional()
+    .default(''),
+  filters: FilterOptionsSchema.optional().default({}),
+  limit: z
+    .number()
+    .int()
+    .min(VALIDATION.MIN_SEARCH_LIMIT)
+    .max(VALIDATION.MAX_SEARCH_LIMIT)
+    .optional()
+    .default(50),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .default(0),
+});
+
+/**
+ * Schema for saving a filter preset.
+ * Name must be unique per user.
+ */
+export const SaveFilterPresetSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, { message: 'Preset name is required' })
+    .max(VALIDATION.MAX_FILTER_PRESET_NAME_LENGTH, {
+      message: `Preset name must be ${VALIDATION.MAX_FILTER_PRESET_NAME_LENGTH} characters or less`,
+    }),
+  filters: FilterOptionsSchema,
+});
+
+/**
+ * Schema for validating a filter preset ID.
+ */
+export const FilterPresetIdSchema = z.string().uuid({ message: 'Invalid preset ID format' });
+
 // Export inferred TypeScript types from schemas
 export type TaskInput = z.infer<typeof TaskSchema>;
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
@@ -271,3 +461,11 @@ export type ColumnId = z.infer<typeof ColumnIdSchema>;
 export type UpdateProfileInput = z.infer<typeof UpdateProfileSchema>;
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
 export type DeleteAccountInput = z.infer<typeof DeleteAccountSchema>;
+export type CreateLabelInput = z.infer<typeof CreateLabelSchema>;
+export type UpdateLabelInput = z.infer<typeof UpdateLabelSchema>;
+export type AddLabelToTaskInput = z.infer<typeof AddLabelToTaskSchema>;
+export type LabelColor = z.infer<typeof LabelColorSchema>;
+export type FilterOptions = z.infer<typeof FilterOptionsSchema>;
+export type SearchTasksInput = z.infer<typeof SearchTasksInputSchema>;
+export type SaveFilterPresetInput = z.infer<typeof SaveFilterPresetSchema>;
+export type DateRange = z.infer<typeof DateRangeSchema>;

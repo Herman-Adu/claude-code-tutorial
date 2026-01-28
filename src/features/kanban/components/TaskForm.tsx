@@ -1,15 +1,18 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { Task, Priority, ColumnId } from '@/types';
 import { cn, VALIDATION } from '@/lib/utils';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { TimePicker } from '@/components/ui/TimePicker';
+import { LabelSelector } from './LabelSelector';
+import { useLabels } from '../hooks/useLabels';
 
 interface TaskFormData extends Omit<Task, 'id' | 'createdAt' | 'updatedAt'> {
   dueDate?: string;
   dueTime?: string;
   isAllDay?: boolean;
+  labelIds?: string[];
 }
 
 interface TaskFormProps {
@@ -20,6 +23,8 @@ interface TaskFormProps {
   initialDueTime?: string;
   /** Initial all-day flag (defaults to true when no time is set) */
   initialIsAllDay?: boolean;
+  /** Initial label IDs for editing */
+  initialLabelIds?: string[];
   onSubmit: (data: TaskFormData) => void;
   onCancel: () => void;
 }
@@ -35,15 +40,19 @@ export function TaskForm({
   initialDueDate,
   initialDueTime,
   initialIsAllDay,
+  initialLabelIds,
   onSubmit,
   onCancel,
 }: TaskFormProps) {
+  const { loadTaskLabels, getTaskLabels } = useLabels();
+
   const [title, setTitle] = useState(initialData?.title || '');
   const [description, setDescription] = useState(initialData?.description || '');
   const [priority, setPriority] = useState<Priority>(initialData?.priority || 'medium');
   const [tagsInput, setTagsInput] = useState(initialData?.tags.join(', ') || '');
   const [categoriesInput, setCategoriesInput] = useState(initialData?.categories?.join(', ') || '');
   const [columnId, setColumnId] = useState<ColumnId>(initialData?.columnId || 'todo');
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(initialLabelIds || []);
 
   // Date/time state - prefer explicit props over initialData fields
   const [dueDate, setDueDate] = useState(
@@ -56,6 +65,18 @@ export function TaskForm({
   const [isAllDay, setIsAllDay] = useState(
     initialIsAllDay ?? initialData?.isAllDay ?? (initialDueTime ? false : true)
   );
+
+  // Load labels for existing task
+  useEffect(() => {
+    if (initialData?.id && !initialLabelIds) {
+      loadTaskLabels(initialData.id).then(() => {
+        const labels = getTaskLabels(initialData.id);
+        if (labels.length > 0) {
+          setSelectedLabelIds(labels.map((l) => l.id));
+        }
+      });
+    }
+  }, [initialData?.id, initialLabelIds, loadTaskLabels, getTaskLabels]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -92,6 +113,7 @@ export function TaskForm({
       dueDate: dueDate || undefined,
       dueTime: isAllDay ? undefined : dueTime || undefined,
       isAllDay,
+      labelIds: selectedLabelIds,
     });
   };
 
@@ -159,6 +181,19 @@ export function TaskForm({
             </button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-600 mb-2">
+          Labels
+        </label>
+        <LabelSelector
+          selectedLabelIds={selectedLabelIds}
+          onLabelChange={setSelectedLabelIds}
+        />
+        <p className="mt-2 text-xs text-slate-400">
+          Color-coded labels for organizing tasks
+        </p>
       </div>
 
       <div>

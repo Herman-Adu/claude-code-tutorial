@@ -27,14 +27,15 @@ model User {
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  accounts Account[]
-  sessions Session[]
-  tasks    Task[]
+  accounts      Account[]
+  sessions      Session[]
+  tasks         Task[]
+  labels        Label[]
+  filterPresets SavedFilterPreset[]
 
   // Indexes for frequently queried fields
   @@index([email], name: "idx_user_email")
   @@index([createdAt], name: "idx_user_created_at")
-
   @@map("users")
 }
 
@@ -60,7 +61,6 @@ model Account {
   // Unique constraint for provider + account ID combination
   @@unique([provider, providerAccountId])
   @@index([userId], name: "idx_account_user_id")
-
   @@map("accounts")
 }
 
@@ -77,7 +77,6 @@ model Session {
 
   @@index([userId], name: "idx_session_user_id")
   @@index([expires], name: "idx_session_expires")
-
   @@map("sessions")
 }
 
@@ -132,12 +131,78 @@ model Task {
   ownerId String @map("owner_id") @db.Uuid
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
+  // Label relationship - many-to-many through TaskLabel junction
+  labels TaskLabel[]
+
   // Indexes for frequently queried fields
   @@index([columnId], name: "idx_task_column_id")
   @@index([priority], name: "idx_task_priority")
   @@index([createdAt], name: "idx_task_created_at")
   @@index([ownerId], name: "idx_task_owner_id")
   @@index([dueDate], name: "idx_task_due_date")
-
   @@map("tasks")
+}
+
+// =============================================================================
+// Label Models (Phase 2A - Labels System)
+// =============================================================================
+
+/// Label model for categorizing tasks with color-coded labels.
+/// Each user can create their own labels for organizing tasks.
+model Label {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(100)
+  color     String   @db.VarChar(20) // hex code or preset name
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tasks TaskLabel[]
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Unique constraint: each user can have only one label with a given name
+  @@unique([userId, name], name: "idx_label_user_name")
+  @@index([userId], name: "idx_label_user_id")
+  @@map("labels")
+}
+
+/// Junction table for many-to-many relationship between tasks and labels.
+/// Enables a task to have multiple labels and a label to be used on multiple tasks.
+model TaskLabel {
+  taskId    String   @map("task_id") @db.Uuid
+  labelId   String   @map("label_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  // Composite primary key
+  @@id([taskId, labelId])
+  @@index([taskId], name: "idx_task_label_task_id")
+  @@index([labelId], name: "idx_task_label_label_id")
+  @@map("task_labels")
+}
+
+// =============================================================================
+// Saved Filter Presets (Phase 2B - Search & Filtering)
+// =============================================================================
+
+/// SavedFilterPreset model for storing user's saved filter configurations.
+/// Allows users to save and quickly load frequently used filter combinations.
+model SavedFilterPreset {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(50)
+  filters   Json     @db.JsonB // FilterOptions JSON object
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Unique constraint: each user can have only one preset with a given name
+  @@unique([userId, name], name: "idx_filter_preset_user_name")
+  @@index([userId], name: "idx_filter_preset_user_id")
+  @@map("saved_filter_presets")
 }
