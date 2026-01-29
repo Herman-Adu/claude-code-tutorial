@@ -22,6 +22,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { auth } from '@/lib/auth/auth';
 import { TaskIdSchema } from '@/lib/schemas';
+import type { InputJsonValue } from '@/generated/prisma/internal/prismaNamespace';
 
 // Activity type enum - matches Prisma schema
 // Will be imported from generated Prisma client after migration
@@ -321,7 +322,7 @@ export async function logTaskActivity(
         type,
         taskId,
         userId,
-        data: data ?? {},
+        data: (data ?? {}) as InputJsonValue,
       },
     });
   } catch (error) {

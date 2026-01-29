@@ -15,6 +15,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/db/prisma';
 import { auth } from '@/lib/auth/auth';
+import type { InputJsonValue } from '@/generated/prisma/internal/prismaNamespace';
 
 // NotificationEventType enum matching the Prisma schema
 // Defined locally to avoid dependency on generated types during development
@@ -381,7 +382,7 @@ export async function createNotification(
         title: sanitizedTitle,
         message: sanitizedMessage,
         taskId: taskId || null,
-        data: data || {},
+        data: (data || {}) as InputJsonValue,
       },
     });
   } catch (error) {

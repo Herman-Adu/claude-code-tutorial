@@ -49,43 +49,56 @@ vi.mock('next/navigation', () => ({
 
 // Mock server actions (will be overridden in specific tests)
 vi.mock('@/app/actions/tasks', () => ({
-  createTask: vi.fn(),
-  updateTask: vi.fn(),
-  deleteTask: vi.fn(),
-  moveTask: vi.fn(),
-  getTasks: vi.fn(),
-  getTasksByColumn: vi.fn(),
-  getTasksByDateRange: vi.fn(),
+  createTask: vi.fn(() => Promise.resolve({ success: true, data: { id: 'test-task-id' } })),
+  updateTask: vi.fn(() => Promise.resolve({ success: true })),
+  deleteTask: vi.fn(() => Promise.resolve({ success: true })),
+  moveTask: vi.fn(() => Promise.resolve({ success: true })),
+  getTasks: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  getTasksByColumn: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  getTasksByDateRange: vi.fn(() => Promise.resolve({ success: true, data: [] })),
   // Search and filter actions
-  searchTasks: vi.fn(),
-  getSavedFilterPresets: vi.fn(),
-  saveFilterPreset: vi.fn(),
-  deleteFilterPreset: vi.fn(),
+  searchTasks: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  getSavedFilterPresets: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  saveFilterPreset: vi.fn(() => Promise.resolve({ success: true, data: { id: 'test-preset-id' } })),
+  deleteFilterPreset: vi.fn(() => Promise.resolve({ success: true })),
+}));
+
+// Mock label server actions
+vi.mock('@/app/actions/labels', () => ({
+  createLabel: vi.fn(() => Promise.resolve({ success: true, data: { id: 'test-label-id', name: 'Test Label', color: '#3B82F6' } })),
+  updateLabel: vi.fn(() => Promise.resolve({ success: true })),
+  deleteLabel: vi.fn(() => Promise.resolve({ success: true })),
+  getLabels: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  getLabelById: vi.fn(() => Promise.resolve({ success: true, data: null })),
+  addLabelToTask: vi.fn(() => Promise.resolve({ success: true })),
+  removeLabelFromTask: vi.fn(() => Promise.resolve({ success: true })),
+  getLabelsForTask: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  setLabelsForTask: vi.fn(() => Promise.resolve({ success: true })),
 }));
 
 // Mock notification server actions
 vi.mock('@/app/actions/notifications', () => ({
-  getNotifications: vi.fn(),
-  getUnreadNotificationCount: vi.fn(),
-  markNotificationAsRead: vi.fn(),
-  markAllNotificationsAsRead: vi.fn(),
-  deleteNotification: vi.fn(),
-  createNotification: vi.fn(),
+  getNotifications: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  getUnreadNotificationCount: vi.fn(() => Promise.resolve({ success: true, data: 0 })),
+  markNotificationAsRead: vi.fn(() => Promise.resolve({ success: true })),
+  markAllNotificationsAsRead: vi.fn(() => Promise.resolve({ success: true })),
+  deleteNotification: vi.fn(() => Promise.resolve({ success: true })),
+  createNotification: vi.fn(() => Promise.resolve({ success: true, data: { id: 'test-notification-id' } })),
 }));
 
 // Mock comment server actions (Phase 2C)
 vi.mock('@/app/actions/comments', () => ({
-  createComment: vi.fn(),
-  updateComment: vi.fn(),
-  deleteComment: vi.fn(),
-  getCommentsByTask: vi.fn(),
-  getComment: vi.fn(),
+  createComment: vi.fn(() => Promise.resolve({ success: true, data: { id: 'test-comment-id', content: 'Test comment' } })),
+  updateComment: vi.fn(() => Promise.resolve({ success: true })),
+  deleteComment: vi.fn(() => Promise.resolve({ success: true })),
+  getCommentsByTask: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  getComment: vi.fn(() => Promise.resolve({ success: true, data: null })),
 }));
 
 // Mock activity server actions (Phase 2C)
 vi.mock('@/app/actions/activity', () => ({
-  getTaskActivity: vi.fn(),
-  getUserActivity: vi.fn(),
-  logTaskActivity: vi.fn(),
-  getTaskActivityCounts: vi.fn(),
+  getTaskActivity: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  getUserActivity: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  logTaskActivity: vi.fn(() => Promise.resolve({ success: true, data: { id: 'test-activity-id' } })),
+  getTaskActivityCounts: vi.fn(() => Promise.resolve({ success: true, data: { total: 0 } })),
 }));

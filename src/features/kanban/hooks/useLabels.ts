@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   useLabelsStore,
   type StoreLabel,
@@ -114,7 +115,7 @@ function transformLabelResponses(labels: LabelResponse[]): StoreLabel[] {
  */
 export function useLabels(): UseLabelsReturn {
   // Store state and actions
-  const labels = useLabelsStore((state) => state.getLabelsArray());
+  const labels = useLabelsStore(useShallow((state) => state.getLabelsArray()));
   const isHydrated = useLabelsStore((state) => state.isHydrated);
   const isLoading = useLabelsStore((state) => state.isLoading);
   const error = useLabelsStore((state) => state.error);
