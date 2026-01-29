@@ -42,7 +42,7 @@ export interface StoreTask {
   // Calendar fields
   dueDate?: string;   // ISO date string
   dueTime?: string;   // HH:MM format
-  isAllDay?: boolean;
+  isAllDay: boolean;  // Required - defaults to true via schema
 }
 
 /**

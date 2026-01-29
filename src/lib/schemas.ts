@@ -148,6 +148,10 @@ export const IsAllDaySchema = z.boolean().default(true).optional();
 /**
  * Base Task schema with all fields.
  * Used as foundation for create/update schemas.
+ *
+ * Note: Fields use .optional().default() pattern to ensure:
+ * 1. TypeScript type inference marks fields as optional in input
+ * 2. Zod parsing provides default values when fields are omitted
  */
 export const TaskSchema = z.object({
   title: z
@@ -163,15 +167,16 @@ export const TaskSchema = z.object({
     .max(VALIDATION.MAX_DESCRIPTION_LENGTH, {
       message: `Description must be ${VALIDATION.MAX_DESCRIPTION_LENGTH} characters or less`,
     })
+    .optional()
     .default(''),
-  priority: PrioritySchema.default('MEDIUM'),
-  columnId: ColumnIdSchema.default('TODO'),
-  tags: TagsSchema,
-  categories: CategoriesSchema,
-  // Calendar fields (Sprint 3)
-  dueDate: DueDateSchema,
-  dueTime: DueTimeSchema,
-  isAllDay: IsAllDaySchema,
+  priority: PrioritySchema.optional().default('MEDIUM'),
+  columnId: ColumnIdSchema.optional().default('TODO'),
+  tags: TagsSchema.optional().default([]),
+  categories: CategoriesSchema.optional().default([]),
+  // Calendar fields (Sprint 3) - nullable optional fields
+  dueDate: DueDateSchema.nullable().optional(),
+  dueTime: DueTimeSchema.nullable().optional(),
+  isAllDay: z.boolean().optional().default(true),
 });
 
 /**
@@ -457,6 +462,8 @@ export const FilterPresetIdSchema = z.string().uuid({ message: 'Invalid preset I
 // Export inferred TypeScript types from schemas
 export type TaskInput = z.infer<typeof TaskSchema>;
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
+// Input type BEFORE Zod applies defaults - allows omitting optional fields
+export type CreateTaskRawInput = z.input<typeof CreateTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
 export type MoveTaskInput = z.infer<typeof MoveTaskSchema>;
 export type Priority = z.infer<typeof PrioritySchema>;

@@ -24,7 +24,7 @@ import {
   SearchTasksInputSchema,
   SaveFilterPresetSchema,
   FilterPresetIdSchema,
-  type CreateTaskInput,
+  type CreateTaskRawInput,
   type UpdateTaskInput,
   type MoveTaskInput,
   type ColumnId,
@@ -154,7 +154,7 @@ function transformTask(task: PrismaTaskRecord): TaskResponse {
  * Sanitizes task input data to prevent XSS attacks.
  * Applies sanitization to title, description, tags, and categories.
  */
-function sanitizeTaskInput<T extends Partial<CreateTaskInput>>(data: T): T {
+function sanitizeTaskInput<T extends Partial<CreateTaskRawInput>>(data: T): T {
   const sanitized = { ...data };
 
   if (data.title !== undefined) {
@@ -268,7 +268,7 @@ function formatZodErrors(
  * @returns ActionResponse with created task or error
  */
 export async function createTask(
-  data: CreateTaskInput
+  data: CreateTaskRawInput
 ): Promise<ActionResponse<TaskResponse>> {
   try {
     // Require authentication

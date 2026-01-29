@@ -151,7 +151,7 @@ function toStoreTaskData(
     // Calendar fields
     dueDate: legacyData.dueDate,
     dueTime: legacyData.dueTime,
-    isAllDay: legacyData.isAllDay,
+    isAllDay: legacyData.isAllDay ?? true, // Default to all-day event
   };
 }
 
