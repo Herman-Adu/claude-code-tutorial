@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(dir \"C:\\\\Users\\\\herma\\\\source\\\\repository\\\\claude-code-tutorial\")",
-      "WebSearch",
-      "Bash(npx create-next-app:*)"
-    ]
-  }
-}
