@@ -32,6 +32,9 @@ model User {
   tasks         Task[]
   labels        Label[]
   filterPresets SavedFilterPreset[]
+  notifications Notification[]
+  comments      Comment[]  @relation("CommentAuthor")
+  activities    Activity[] @relation("UserActivities")
 
   // Indexes for frequently queried fields
   @@index([email], name: "idx_user_email")
@@ -134,6 +137,13 @@ model Task {
   // Label relationship - many-to-many through TaskLabel junction
   labels TaskLabel[]
 
+  // Comment and Activity relationships (Phase 2C)
+  comments   Comment[]
+  activities Activity[]
+
+  // Notification relationship
+  notifications Notification[]
+
   // Indexes for frequently queried fields
   @@index([columnId], name: "idx_task_column_id")
   @@index([priority], name: "idx_task_priority")
@@ -205,4 +215,111 @@ model SavedFilterPreset {
   @@unique([userId, name], name: "idx_filter_preset_user_name")
   @@index([userId], name: "idx_filter_preset_user_id")
   @@map("saved_filter_presets")
+}
+
+// =============================================================================
+// Comments & Activity Models (Phase 2C - Comments & Activity System)
+// =============================================================================
+
+/// Activity types for tracking all changes to tasks.
+/// Used for audit trail and activity feed.
+enum ActivityType {
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_MOVED
+  TASK_DELETED
+  COMMENT_ADDED
+  COMMENT_UPDATED
+  COMMENT_DELETED
+  LABEL_ADDED
+  LABEL_REMOVED
+}
+
+/// Comment model for task discussion.
+/// Allows users to leave comments on tasks with edit tracking.
+model Comment {
+  id       String  @id @default(uuid()) @db.Uuid
+  text     String  @db.Text
+  taskId   String  @map("task_id") @db.Uuid
+  authorId String  @map("author_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  editedAt  DateTime? @map("edited_at")
+
+  // Relations
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([taskId], name: "idx_comment_task_id")
+  @@index([authorId], name: "idx_comment_author_id")
+  @@index([createdAt], name: "idx_comment_created_at")
+  @@map("comments")
+}
+
+/// Activity log for tracking all changes to tasks.
+/// Provides audit trail and activity feed for collaborative features.
+model Activity {
+  id     String       @id @default(uuid()) @db.Uuid
+  type   ActivityType
+  taskId String       @map("task_id") @db.Uuid
+  userId String       @map("user_id") @db.Uuid
+  data   Json         @default("{}") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("UserActivities", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId], name: "idx_activity_task_id")
+  @@index([userId], name: "idx_activity_user_id")
+  @@index([type], name: "idx_activity_type")
+  @@index([createdAt], name: "idx_activity_created_at")
+  @@map("activities")
+}
+
+// =============================================================================
+// Notification Models (Phase 2D - Notifications System)
+// =============================================================================
+
+/// Event types that can trigger notifications
+enum NotificationEventType {
+  COMMENT_ADDED_TO_TASK
+  TASK_MOVED_TO_COMPLETED
+  TASK_MODIFIED
+}
+
+/// Notification model for Phase 2D.
+/// Tracks which users have been notified of which events.
+/// Soft-deleted via isRead flag for data retention.
+model Notification {
+  id        String                @id @default(uuid()) @db.Uuid
+  userId    String                @map("user_id") @db.Uuid
+  eventType NotificationEventType
+  taskId    String?               @map("task_id") @db.Uuid
+
+  // Notification state
+  isRead Boolean   @default(false) @map("is_read")
+  readAt DateTime? @map("read_at")
+
+  // Content
+  title   String @db.VarChar(200)
+  message String @db.VarChar(500)
+
+  // Metadata
+  data      Json     @default("{}") @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId], name: "idx_notification_user_id")
+  @@index([isRead], name: "idx_notification_is_read")
+  @@index([createdAt], name: "idx_notification_created_at")
+  @@index([taskId], name: "idx_notification_task_id")
+  @@index([userId, isRead, createdAt], name: "idx_notification_user_unread_created")
+  @@index([userId, createdAt], name: "idx_notification_user_created")
+  @@map("notifications")
 }

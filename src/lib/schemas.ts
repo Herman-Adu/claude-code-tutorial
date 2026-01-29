@@ -28,6 +28,9 @@ export const VALIDATION = {
   MAX_SEARCH_LIMIT: 100,
   MIN_SEARCH_LIMIT: 1,
   MAX_FILTER_PRESET_NAME_LENGTH: 50,
+  // Comment validation (Phase 2C)
+  MAX_COMMENT_LENGTH: 2000,
+  MIN_COMMENT_LENGTH: 1,
 } as const;
 
 // Preset label colors for consistent UI
@@ -469,3 +472,45 @@ export type FilterOptions = z.infer<typeof FilterOptionsSchema>;
 export type SearchTasksInput = z.infer<typeof SearchTasksInputSchema>;
 export type SaveFilterPresetInput = z.infer<typeof SaveFilterPresetSchema>;
 export type DateRange = z.infer<typeof DateRangeSchema>;
+
+// ============================================================================
+// Comment Schemas (Phase 2C - Comments & Activity System)
+// ============================================================================
+
+/**
+ * Schema for creating a new comment on a task.
+ * Validates text length and task ID format.
+ */
+export const CreateCommentSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(VALIDATION.MIN_COMMENT_LENGTH, { message: 'Comment cannot be empty' })
+    .max(VALIDATION.MAX_COMMENT_LENGTH, {
+      message: `Comment must be ${VALIDATION.MAX_COMMENT_LENGTH} characters or less`,
+    }),
+  taskId: z.string().uuid({ message: 'Invalid task ID' }),
+});
+
+export type CreateCommentInput = z.infer<typeof CreateCommentSchema>;
+
+/**
+ * Schema for updating an existing comment.
+ * Only the text field can be updated.
+ */
+export const UpdateCommentSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(VALIDATION.MIN_COMMENT_LENGTH, { message: 'Comment cannot be empty' })
+    .max(VALIDATION.MAX_COMMENT_LENGTH, {
+      message: `Comment must be ${VALIDATION.MAX_COMMENT_LENGTH} characters or less`,
+    }),
+});
+
+export type UpdateCommentInput = z.infer<typeof UpdateCommentSchema>;
+
+/**
+ * Schema for validating a comment ID parameter.
+ */
+export const CommentIdSchema = z.string().uuid({ message: 'Invalid comment ID format' });

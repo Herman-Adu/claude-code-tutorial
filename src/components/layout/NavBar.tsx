@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { NavLink } from './NavLink';
 import { MobileMenu } from './MobileMenu';
 import { UserMenu } from '@/features/auth';
+import { NotificationBell } from '@/features/notifications';
 
 /**
  * Icon components for navigation items.
@@ -115,8 +116,11 @@ export function NavBar() {
               ))}
             </div>
 
-            {/* Right side: User menu and mobile hamburger */}
+            {/* Right side: Notifications, User menu and mobile hamburger */}
             <div className="flex items-center gap-3">
+              {/* Notification bell - always visible */}
+              <NotificationBell />
+
               {/* User menu - always visible */}
               <UserMenu />
 

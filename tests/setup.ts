@@ -62,3 +62,30 @@ vi.mock('@/app/actions/tasks', () => ({
   saveFilterPreset: vi.fn(),
   deleteFilterPreset: vi.fn(),
 }));
+
+// Mock notification server actions
+vi.mock('@/app/actions/notifications', () => ({
+  getNotifications: vi.fn(),
+  getUnreadNotificationCount: vi.fn(),
+  markNotificationAsRead: vi.fn(),
+  markAllNotificationsAsRead: vi.fn(),
+  deleteNotification: vi.fn(),
+  createNotification: vi.fn(),
+}));
+
+// Mock comment server actions (Phase 2C)
+vi.mock('@/app/actions/comments', () => ({
+  createComment: vi.fn(),
+  updateComment: vi.fn(),
+  deleteComment: vi.fn(),
+  getCommentsByTask: vi.fn(),
+  getComment: vi.fn(),
+}));
+
+// Mock activity server actions (Phase 2C)
+vi.mock('@/app/actions/activity', () => ({
+  getTaskActivity: vi.fn(),
+  getUserActivity: vi.fn(),
+  logTaskActivity: vi.fn(),
+  getTaskActivityCounts: vi.fn(),
+}));
