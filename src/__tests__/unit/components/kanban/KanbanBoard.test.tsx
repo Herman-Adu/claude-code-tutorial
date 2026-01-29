@@ -47,6 +47,7 @@ const mockUseKanban = {
   isLoading: false,
   error: null,
   addTask: vi.fn(),
+  addTaskAsync: vi.fn().mockResolvedValue('new-task-id'),
   updateTask: vi.fn(),
   deleteTask: vi.fn(),
   moveTask: vi.fn(),
@@ -280,7 +281,7 @@ describe('KanbanBoard', () => {
       expect(screen.getByText('Edit Task')).toBeInTheDocument();
     });
 
-    it('should call addTask when form is submitted for new task', async () => {
+    it('should call addTaskAsync when form is submitted for new task', async () => {
       render(<KanbanBoard />);
 
       // Open modal
@@ -291,8 +292,8 @@ describe('KanbanBoard', () => {
       const submitButton = screen.getByRole('button', { name: /create task/i });
       await user.click(submitButton);
 
-      expect(mockUseKanban.addTask).toHaveBeenCalledTimes(1);
-      expect(mockUseKanban.addTask).toHaveBeenCalledWith(
+      expect(mockUseKanban.addTaskAsync).toHaveBeenCalledTimes(1);
+      expect(mockUseKanban.addTaskAsync).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Test Task',
           columnId: 'todo',

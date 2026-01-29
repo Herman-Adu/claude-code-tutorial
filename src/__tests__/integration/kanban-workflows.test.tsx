@@ -33,6 +33,10 @@ vi.mock('@/app/actions/tasks', () => ({
   deleteTask: vi.fn(),
   moveTask: vi.fn(),
   getTasksByColumn: vi.fn(),
+  getSavedFilterPresets: vi.fn(),
+  saveFilterPreset: vi.fn(),
+  deleteFilterPreset: vi.fn(),
+  searchTasks: vi.fn(),
 }));
 
 // Mock Next.js cache revalidation
@@ -46,8 +50,11 @@ vi.mock('next/cache', () => ({
 
 /**
  * Creates a mock task response with default values.
+ * TaskResponse uses Date objects for createdAt/updatedAt and includes
+ * required fields for calendar and ownership.
  */
 function createMockTask(overrides: Partial<TaskResponse> = {}): TaskResponse {
+  const now = new Date();
   return {
     id: `task-${Date.now()}-${Math.random()}`,
     title: 'Test Task',
@@ -56,8 +63,13 @@ function createMockTask(overrides: Partial<TaskResponse> = {}): TaskResponse {
     columnId: 'TODO',
     tags: [],
     categories: [],
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: now,
+    updatedAt: now,
+    dueDate: null,
+    dueTime: null,
+    isAllDay: true,
+    ownerName: 'Test User',
+    ownerEmail: 'test@example.com',
     ...overrides,
   };
 }
@@ -74,8 +86,9 @@ function createSuccessResponse<T>(data: T): ActionResponse<T> {
 
 /**
  * Creates a failed action response.
+ * Uses never type for data to indicate no data is present in error responses.
  */
-function createErrorResponse(error: string): ActionResponse {
+function createErrorResponse<T = never>(error: string): ActionResponse<T> {
   return {
     success: false,
     error,
@@ -178,6 +191,11 @@ describe('Kanban Board Integration Tests', () => {
 
     // Default mock: getTasks returns empty array
     vi.mocked(taskActions.getTasks).mockResolvedValue(
+      createSuccessResponse([])
+    );
+
+    // Default mock: getSavedFilterPresets returns empty array
+    vi.mocked(taskActions.getSavedFilterPresets).mockResolvedValue(
       createSuccessResponse([])
     );
   });
@@ -402,8 +420,9 @@ describe('Kanban Board Integration Tests', () => {
         expect(screen.getByRole('dialog')).toBeInTheDocument();
       });
 
-      // Only update title
-      const titleInput = screen.getByLabelText(/title/i);
+      // Only update title (scope to dialog to avoid matching search input)
+      const dialog = screen.getByRole('dialog');
+      const titleInput = within(dialog).getByLabelText(/title/i);
       await user.clear(titleInput);
       await user.type(titleInput, 'Updated Title');
 

@@ -40,7 +40,7 @@ describe('Badge', () => {
       const { container } = render(<Badge variant="tag">Tag Badge</Badge>);
       const badge = container.firstChild as HTMLElement;
       expect(badge).toHaveClass('bg-violet-100/70');
-      expect(badge).toHaveClass('text-violet-600');
+      expect(badge).toHaveClass('text-violet-700');
     });
 
     it('should render with category variant', () => {

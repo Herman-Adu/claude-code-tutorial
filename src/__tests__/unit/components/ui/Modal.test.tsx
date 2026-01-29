@@ -192,17 +192,21 @@ describe('Modal', () => {
       );
 
       const closeButton = screen.getByRole('button', { name: /close modal/i });
+      const contentRegion = screen.getByRole('region', { name: /modal content/i });
       const firstButton = screen.getByRole('button', { name: /first/i });
       const secondButton = screen.getByRole('button', { name: /second/i });
 
-      // Tab through elements
+      // Tab through elements (includes content region with tabIndex={0} for scroll accessibility)
+      await user.tab();
+      await waitFor(() => expect(contentRegion).toHaveFocus());
+
       await user.tab();
       await waitFor(() => expect(firstButton).toHaveFocus());
 
       await user.tab();
       await waitFor(() => expect(secondButton).toHaveFocus());
 
-      // Tab from last element should wrap to first
+      // Tab from last element should wrap to first focusable
       await user.tab();
       await waitFor(() => expect(closeButton).toHaveFocus());
     });
@@ -218,10 +222,11 @@ describe('Modal', () => {
       const closeButton = screen.getByRole('button', { name: /close modal/i });
       const secondButton = screen.getByRole('button', { name: /second/i });
 
-      // Start at close button and shift+tab should go to last element
+      // Start at close button and shift+tab should go to last focusable element (secondButton)
       closeButton.focus();
       await user.keyboard('{Shift>}{Tab}{/Shift}');
 
+      // The last focusable element is secondButton
       await waitFor(() => expect(secondButton).toHaveFocus());
     });
 

@@ -410,7 +410,13 @@ describe('TaskSchema', () => {
       const result = TaskSchema.safeParse(task);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data).toEqual(task);
+        // Check core fields match (ignores optional calendar fields dueDate, dueTime, isAllDay)
+        expect(result.data.title).toBe(task.title);
+        expect(result.data.description).toBe(task.description);
+        expect(result.data.priority).toBe(task.priority);
+        expect(result.data.columnId).toBe(task.columnId);
+        expect(result.data.tags).toEqual(task.tags);
+        expect(result.data.categories).toEqual(task.categories);
       }
     });
 
@@ -519,14 +525,13 @@ describe('TaskSchema', () => {
       const result = TaskSchema.safeParse(task);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data).toEqual({
-          title: 'Test',
-          description: '',
-          priority: 'MEDIUM',
-          columnId: 'TODO',
-          tags: [],
-          categories: [],
-        });
+        // Check core fields with defaults (ignores optional calendar fields dueDate, dueTime, isAllDay)
+        expect(result.data.title).toBe('Test');
+        expect(result.data.description).toBe('');
+        expect(result.data.priority).toBe('MEDIUM');
+        expect(result.data.columnId).toBe('TODO');
+        expect(result.data.tags).toEqual([]);
+        expect(result.data.categories).toEqual([]);
       }
     });
   });
@@ -758,7 +763,13 @@ describe('UpdateTaskSchema', () => {
       const result = UpdateTaskSchema.safeParse(update);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data).toEqual(update);
+        // Check core fields match (ignores optional calendar fields dueDate, dueTime, isAllDay)
+        expect(result.data.title).toBe(update.title);
+        expect(result.data.description).toBe(update.description);
+        expect(result.data.priority).toBe(update.priority);
+        expect(result.data.columnId).toBe(update.columnId);
+        expect(result.data.tags).toEqual(update.tags);
+        expect(result.data.categories).toEqual(update.categories);
       }
     });
   });
@@ -816,14 +827,13 @@ describe('UpdateTaskSchema', () => {
       if (result.success) {
         // Zod's .partial() makes fields optional but still applies defaults during parsing
         // This is documented Zod behavior - defaults are applied even in partial schemas
-        expect(result.data).toEqual({
-          title: 'Test',
-          description: '',
-          priority: 'MEDIUM',
-          columnId: 'TODO',
-          tags: [],
-          categories: [],
-        });
+        // Check core fields (ignores optional calendar fields dueDate, dueTime, isAllDay)
+        expect(result.data.title).toBe('Test');
+        expect(result.data.description).toBe('');
+        expect(result.data.priority).toBe('MEDIUM');
+        expect(result.data.columnId).toBe('TODO');
+        expect(result.data.tags).toEqual([]);
+        expect(result.data.categories).toEqual([]);
       }
     });
   });

@@ -15,7 +15,6 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
 
 // =============================================================================
 // Mocks Setup
@@ -38,6 +37,47 @@ interface MockPrisma {
   task: MockPrismaTask;
   $connect: Mock;
   $disconnect: Mock;
+}
+
+// =============================================================================
+// Type Definitions for Mock Arguments
+// =============================================================================
+
+/**
+ * Type for Prisma task.create arguments.
+ * This matches the shape of what Prisma's create method receives.
+ */
+interface PrismaTaskCreateArgs {
+  data: {
+    title: string;
+    description?: string;
+    priority?: string;
+    columnId?: string;
+    tags?: string[];
+    categories?: string[];
+    dueDate?: Date | null;
+    dueTime?: string | null;
+    isAllDay?: boolean;
+    ownerId: string;
+  };
+  include?: {
+    owner?: {
+      select?: { name?: boolean; email?: boolean };
+    };
+  };
+}
+
+/**
+ * Type for Prisma task.update arguments.
+ */
+interface PrismaTaskUpdateArgs {
+  where: { id: string; ownerId?: string };
+  data: Record<string, unknown>;
+  include?: {
+    owner?: {
+      select?: { name?: boolean; email?: boolean };
+    };
+  };
 }
 
 // Create mock using vi.hoisted - this runs before vi.mock factories
@@ -68,6 +108,21 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
 
+// Mock next-auth to prevent module import errors
+vi.mock('next-auth', () => ({
+  default: vi.fn(),
+}));
+
+// Mock the auth module - this is required because tasks.ts imports auth
+vi.mock('@/lib/auth/auth', () => ({
+  auth: vi.fn(() => Promise.resolve({
+    user: { id: 'test-user-id', name: 'Test User', email: 'test@example.com' },
+  })),
+  handlers: { GET: vi.fn(), POST: vi.fn() },
+  signIn: vi.fn(),
+  signOut: vi.fn(),
+}));
+
 // Import after mocks are set up - these will be the REAL implementations
 // because we unmocked them above
 import {
@@ -79,8 +134,9 @@ import {
   getTasksByColumn,
 } from '@/app/actions/tasks';
 
+import type { CreateTaskInput, CreateTaskRawInput } from '@/lib/schemas';
+
 import {
-  mockTask,
   mockPrismaTask,
   xssPayloads,
   sanitizedXssPayloads,
@@ -122,6 +178,10 @@ describe('createTask', () => {
         priority: 'MEDIUM',
         tags: [],
         categories: [],
+        dueDate: null,
+        dueTime: null,
+        isAllDay: true,
+        owner: { name: 'Test User', email: 'test@example.com' },
       });
 
       const result = await createTask(input);
@@ -137,7 +197,13 @@ describe('createTask', () => {
           description: '',
           tags: [],
           categories: [],
+          ownerId: 'test-user-id',
         }),
+        include: {
+          owner: {
+            select: { name: true, email: true },
+          },
+        },
       });
     });
 
@@ -147,8 +213,9 @@ describe('createTask', () => {
       prismaMock.task.create.mockResolvedValue({
         ...mockPrismaTask,
         ...input,
-        tags: input.tags as unknown,
-        categories: input.categories as unknown,
+        // Spread readonly arrays into mutable arrays for mock compatibility
+        tags: [...(input.tags ?? [])],
+        categories: [...(input.categories ?? [])],
       });
 
       const result = await createTask(input);
@@ -157,18 +224,18 @@ describe('createTask', () => {
       expect(result.data).toBeDefined();
       expect(result.data?.title).toBe(input.title);
       expect(result.data?.priority).toBe(input.priority);
-      expect(result.data?.tags).toEqual(input.tags);
-      expect(result.data?.categories).toEqual(input.categories);
+      expect(result.data?.tags).toEqual(input.tags ?? []);
+      expect(result.data?.categories).toEqual(input.categories ?? []);
     });
 
     it('should sanitize XSS in title', async () => {
-      const input = {
+      const input: CreateTaskRawInput = {
         title: xssPayloads[0], // '<script>alert("xss")</script>'
-        columnId: 'TODO' as const,
+        columnId: 'TODO',
       };
 
       // Mock to return the sanitized title
-      prismaMock.task.create.mockImplementation((args: any) =>
+      prismaMock.task.create.mockImplementation((args: PrismaTaskCreateArgs) =>
         Promise.resolve({
           ...mockPrismaTask,
           title: args.data.title,
@@ -183,13 +250,13 @@ describe('createTask', () => {
     });
 
     it('should sanitize XSS in description', async () => {
-      const input = {
+      const input: CreateTaskRawInput = {
         title: 'Safe Title',
         description: xssPayloads[1], // '<img src=x onerror=alert("xss")>'
-        columnId: 'TODO' as const,
+        columnId: 'TODO',
       };
 
-      prismaMock.task.create.mockImplementation((args: any) =>
+      prismaMock.task.create.mockImplementation((args: PrismaTaskCreateArgs) =>
         Promise.resolve({
           ...mockPrismaTask,
           description: args.data.description,
@@ -209,7 +276,7 @@ describe('createTask', () => {
       prismaMock.task.create.mockResolvedValue({
         ...mockPrismaTask,
         title: input.title,
-        description: input.description!,
+        description: input.description ?? '',
       });
 
       const result = await createTask(input);
@@ -222,7 +289,9 @@ describe('createTask', () => {
 
   describe('✗ Validation Errors', () => {
     it('should reject empty title', async () => {
-      const result = await createTask(invalidInputs.emptyTitle as any);
+      // Testing validation behavior with intentionally invalid input
+      // Cast required because we're testing runtime Zod validation with invalid data
+      const result = await createTask(invalidInputs.emptyTitle as CreateTaskInput);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -231,7 +300,9 @@ describe('createTask', () => {
     });
 
     it('should reject title that is too long', async () => {
-      const result = await createTask(invalidInputs.tooLongTitle as any);
+      // Testing validation behavior with intentionally invalid input
+      // Cast required because we're testing runtime Zod validation with invalid data
+      const result = await createTask(invalidInputs.tooLongTitle as CreateTaskInput);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -239,7 +310,9 @@ describe('createTask', () => {
     });
 
     it('should reject invalid priority', async () => {
-      const result = await createTask(invalidInputs.invalidPriority as any);
+      // Testing validation behavior with intentionally invalid input
+      // Cast required because we're testing runtime Zod validation with invalid priority
+      const result = await createTask(invalidInputs.invalidPriority as CreateTaskInput);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -247,7 +320,9 @@ describe('createTask', () => {
     });
 
     it('should reject invalid columnId', async () => {
-      const result = await createTask(invalidInputs.invalidColumnId as any);
+      // Testing validation behavior with intentionally invalid input
+      // Cast required because we're testing runtime Zod validation with invalid columnId
+      const result = await createTask(invalidInputs.invalidColumnId as CreateTaskInput);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -273,7 +348,8 @@ describe('createTask', () => {
       const result = await createTask(validInputs.minimal);
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('connect');
+      // Error messages are now generic for security (no internal details exposed)
+      expect(result.error).toBeDefined();
     });
   });
 });
@@ -292,6 +368,10 @@ describe('updateTask', () => {
       prismaMock.task.update.mockResolvedValue({
         ...mockPrismaTask,
         title: updateData.title,
+        dueDate: null,
+        dueTime: null,
+        isAllDay: true,
+        owner: { name: 'Test User', email: 'test@example.com' },
       });
 
       const result = await updateTask(taskId, updateData);
@@ -299,8 +379,13 @@ describe('updateTask', () => {
       expect(result.success).toBe(true);
       expect(result.data?.title).toBe(updateData.title);
       expect(prismaMock.task.update).toHaveBeenCalledWith({
-        where: { id: taskId },
+        where: { id: taskId, ownerId: 'test-user-id' },
         data: expect.objectContaining({ title: updateData.title }),
+        include: {
+          owner: {
+            select: { name: true, email: true },
+          },
+        },
       });
     });
 
@@ -315,7 +400,8 @@ describe('updateTask', () => {
       prismaMock.task.update.mockResolvedValue({
         ...mockPrismaTask,
         ...updateData,
-        tags: updateData.tags as unknown,
+        // Spread readonly array into mutable array for mock compatibility
+        tags: [...updateData.tags],
       });
 
       const result = await updateTask(taskId, updateData);
@@ -330,10 +416,10 @@ describe('updateTask', () => {
         title: xssPayloads[2], // 'javascript:alert("xss")'
       };
 
-      prismaMock.task.update.mockImplementation((args: any) =>
+      prismaMock.task.update.mockImplementation((args: PrismaTaskUpdateArgs) =>
         Promise.resolve({
           ...mockPrismaTask,
-          title: args.data.title,
+          title: args.data.title as string,
         })
       );
 
@@ -400,7 +486,7 @@ describe('deleteTask', () => {
 
       expect(result.success).toBe(true);
       expect(prismaMock.task.delete).toHaveBeenCalledWith({
-        where: { id: taskId },
+        where: { id: taskId, ownerId: 'test-user-id' },
       });
     });
   });
@@ -455,6 +541,10 @@ describe('moveTask', () => {
       prismaMock.task.update.mockResolvedValue({
         ...mockPrismaTask,
         columnId: input.newColumnId,
+        dueDate: null,
+        dueTime: null,
+        isAllDay: true,
+        owner: { name: 'Test User', email: 'test@example.com' },
       });
 
       const result = await moveTask(input);
@@ -462,8 +552,13 @@ describe('moveTask', () => {
       expect(result.success).toBe(true);
       expect(result.data?.columnId).toBe(input.newColumnId);
       expect(prismaMock.task.update).toHaveBeenCalledWith({
-        where: { id: taskId },
+        where: { id: taskId, ownerId: 'test-user-id' },
         data: { columnId: input.newColumnId },
+        include: {
+          owner: {
+            select: { name: true, email: true },
+          },
+        },
       });
     });
 
@@ -513,20 +608,24 @@ describe('moveTask', () => {
 
   describe('✗ Validation Errors', () => {
     it('should reject invalid task ID', async () => {
+      // Testing validation behavior with intentionally invalid input
+      // Note: TypeScript allows string inputs, but Zod validates UUID format at runtime
       const result = await moveTask({
         taskId: 'invalid',
         newColumnId: 'TODO',
-      } as any);
+      });
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });
 
     it('should reject invalid column ID', async () => {
+      // Testing validation behavior with intentionally invalid input
+      // Note: TypeScript allows string inputs, but Zod validates the ColumnId enum at runtime
       const result = await moveTask({
         taskId,
-        newColumnId: 'INVALID_COLUMN',
-      } as any);
+        newColumnId: 'INVALID_COLUMN' as 'TODO', // Cast to bypass TS, Zod catches at runtime
+      });
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -572,9 +671,9 @@ describe('getTasks', () => {
   describe('✓ Success Cases', () => {
     it('should return all tasks ordered by createdAt', async () => {
       const tasks = [
-        { ...mockPrismaTask, id: '1', createdAt: new Date('2025-01-03') },
-        { ...mockPrismaTask, id: '2', createdAt: new Date('2025-01-02') },
-        { ...mockPrismaTask, id: '3', createdAt: new Date('2025-01-01') },
+        { ...mockPrismaTask, id: '1', createdAt: new Date('2025-01-03'), dueDate: null, dueTime: null, isAllDay: true, owner: { name: 'Test User', email: 'test@example.com' } },
+        { ...mockPrismaTask, id: '2', createdAt: new Date('2025-01-02'), dueDate: null, dueTime: null, isAllDay: true, owner: { name: 'Test User', email: 'test@example.com' } },
+        { ...mockPrismaTask, id: '3', createdAt: new Date('2025-01-01'), dueDate: null, dueTime: null, isAllDay: true, owner: { name: 'Test User', email: 'test@example.com' } },
       ];
 
       prismaMock.task.findMany.mockResolvedValue(tasks);
@@ -584,7 +683,13 @@ describe('getTasks', () => {
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(3);
       expect(prismaMock.task.findMany).toHaveBeenCalledWith({
+        where: { ownerId: 'test-user-id' },
         orderBy: { createdAt: 'desc' },
+        include: {
+          owner: {
+            select: { name: true, email: true },
+          },
+        },
       });
     });
 
@@ -638,8 +743,8 @@ describe('getTasksByColumn', () => {
     it('should filter tasks by valid columnId', async () => {
       const columnId = 'TODO';
       const tasks = [
-        { ...mockPrismaTask, id: '1', columnId },
-        { ...mockPrismaTask, id: '2', columnId },
+        { ...mockPrismaTask, id: '1', columnId, dueDate: null, dueTime: null, isAllDay: true, owner: { name: 'Test User', email: 'test@example.com' } },
+        { ...mockPrismaTask, id: '2', columnId, dueDate: null, dueTime: null, isAllDay: true, owner: { name: 'Test User', email: 'test@example.com' } },
       ];
 
       prismaMock.task.findMany.mockResolvedValue(tasks);
@@ -649,8 +754,13 @@ describe('getTasksByColumn', () => {
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
       expect(prismaMock.task.findMany).toHaveBeenCalledWith({
-        where: { columnId },
+        where: { columnId, ownerId: 'test-user-id' },
         orderBy: { createdAt: 'desc' },
+        include: {
+          owner: {
+            select: { name: true, email: true },
+          },
+        },
       });
     });
 
@@ -676,7 +786,9 @@ describe('getTasksByColumn', () => {
 
   describe('✗ Validation Errors', () => {
     it('should reject invalid columnId', async () => {
-      const result = await getTasksByColumn('INVALID' as any);
+      // Testing validation behavior with intentionally invalid input
+      // Note: TypeScript allows string inputs, but Zod validates the ColumnId enum at runtime
+      const result = await getTasksByColumn('INVALID' as 'TODO');
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid column ID');
