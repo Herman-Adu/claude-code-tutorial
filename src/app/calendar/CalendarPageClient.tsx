@@ -32,10 +32,9 @@ export default function CalendarPageClient() {
     setIsModalOpen(true);
   }, []);
 
-  const handleSlotSelect = useCallback((slotInfo: { start: Date; end: Date }) => {
+  const handleSlotSelect = useCallback((_slotInfo: { start: Date; end: Date }) => {
     // Could be used to create a new task with the selected date pre-filled
-    // For now, just open the form with the date
-    console.log('Selected slot:', slotInfo);
+    // For now, this is a placeholder for future implementation
   }, []);
 
   const handleSubmitTask = useCallback(

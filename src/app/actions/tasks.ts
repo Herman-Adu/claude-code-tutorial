@@ -32,6 +32,7 @@ import {
   type SaveFilterPresetInput,
 } from '@/lib/schemas';
 import { sanitizeString } from '@/lib/utils';
+import { checkRateLimit, getRateLimitErrorMessage } from '@/lib/rate-limit';
 import type { Priority, ColumnId as DbColumnId } from '@/generated/prisma/enums';
 import type { InputJsonValue } from '@/generated/prisma/internal/prismaNamespace';
 
@@ -733,65 +734,6 @@ export async function getTasksByDateRange(
 }
 
 // ============================================================================
-// Rate Limiting
-// ============================================================================
-
-/**
- * Simple in-memory rate limiter for search requests.
- * Limits users to 20 searches per minute to prevent DOS attacks.
- *
- * Note: In production with multiple server instances, this should be
- * replaced with a distributed rate limiter (e.g., Redis-based).
- */
-const rateLimitCache = new Map<string, { count: number; resetTime: number }>();
-
-/**
- * Rate limit configuration for search operations.
- */
-const RATE_LIMIT = {
-  maxRequests: 20,
-  windowMs: 60000, // 1 minute
-} as const;
-
-/**
- * Checks and updates rate limit for a user.
- * @param userId - The user ID to check
- * @returns true if request is allowed, false if rate limited
- */
-function checkRateLimit(userId: string): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  const cacheKey = `search:${userId}`;
-  const existing = rateLimitCache.get(cacheKey);
-
-  // Clean up expired entries periodically
-  if (rateLimitCache.size > 1000) {
-    for (const [key, value] of rateLimitCache.entries()) {
-      if (now > value.resetTime) {
-        rateLimitCache.delete(key);
-      }
-    }
-  }
-
-  // If no existing entry or window expired, create new entry
-  if (!existing || now > existing.resetTime) {
-    rateLimitCache.set(cacheKey, {
-      count: 1,
-      resetTime: now + RATE_LIMIT.windowMs,
-    });
-    return { allowed: true, remaining: RATE_LIMIT.maxRequests - 1 };
-  }
-
-  // Check if limit exceeded
-  if (existing.count >= RATE_LIMIT.maxRequests) {
-    return { allowed: false, remaining: 0 };
-  }
-
-  // Increment counter
-  existing.count++;
-  return { allowed: true, remaining: RATE_LIMIT.maxRequests - existing.count };
-}
-
-// ============================================================================
 // Search and Filter Server Actions (Phase 2B)
 // ============================================================================
 
@@ -815,12 +757,12 @@ export async function searchTasks(
       };
     }
 
-    // Rate limiting: 20 searches per minute per user
-    const rateLimitResult = checkRateLimit(userId);
-    if (!rateLimitResult.allowed) {
+    // Rate limiting: 20 searches per minute per user (uses Redis when configured)
+    const rateLimitResult = await checkRateLimit(userId, 'search');
+    if (!rateLimitResult.success) {
       return {
         success: false,
-        error: 'Too many searches. Please try again in 1 minute.',
+        error: getRateLimitErrorMessage('search'),
       };
     }
 

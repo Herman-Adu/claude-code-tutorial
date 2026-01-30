@@ -102,3 +102,19 @@ vi.mock('@/app/actions/activity', () => ({
   logTaskActivity: vi.fn(() => Promise.resolve({ success: true, data: { id: 'test-activity-id' } })),
   getTaskActivityCounts: vi.fn(() => Promise.resolve({ success: true, data: { total: 0 } })),
 }));
+
+// Mock rate limiting - always allow in tests
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: vi.fn(() => Promise.resolve({ success: true, remaining: 10, reset: Date.now() + 60000 })),
+  getRateLimitErrorMessage: vi.fn((type: string) => `Rate limit exceeded for ${type}`),
+  RATE_LIMITS: {
+    labels: { max: 10, window: '1h', prefix: 'ratelimit:labels' },
+    comments: { max: 50, window: '1h', prefix: 'ratelimit:comments' },
+    search: { max: 20, window: '1m', prefix: 'ratelimit:search' },
+    changePassword: { max: 3, window: '15m', prefix: 'ratelimit:changePassword' },
+    updateProfile: { max: 10, window: '1h', prefix: 'ratelimit:updateProfile' },
+    deleteAccount: { max: 5, window: '1h', prefix: 'ratelimit:deleteAccount' },
+  },
+  cleanupInMemoryStore: vi.fn(),
+  resetRateLimiters: vi.fn(),
+}));

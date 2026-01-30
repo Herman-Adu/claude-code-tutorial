@@ -116,7 +116,105 @@ NEXTAUTH_SECRET=<generate-min-32-chars>
 
 ## Testing
 
-- Framework: Vitest with happy-dom
-- Test files: `src/__tests__/`
-- Setup: `tests/setup.ts` (mocks localStorage, Next.js navigation, server actions)
-- Coverage: >80%
+### Framework
+- Vitest with happy-dom
+- Coverage target: >80%
+
+### Test File Organization
+```
+src/__tests__/
+├── unit/                      # Unit tests
+│   ├── store/                 # Zustand store tests
+│   ├── server-actions/        # Server action tests (comprehensive)
+│   ├── app/actions/           # Server action error handling tests
+│   ├── lib/                   # Utility function tests
+│   └── features/              # Feature-specific unit tests
+├── integration/               # Integration tests
+│   └── actions/               # Server action integration tests
+└── features/                  # Feature integration tests
+    ├── kanban/                # Kanban feature tests
+    ├── comments/              # Comment feature tests
+    └── notifications/         # Notification feature tests
+
+tests/
+├── setup.ts                   # Global test setup (mocks)
+└── utils/                     # Shared test utilities (@test-utils)
+    ├── index.ts               # Barrel export
+    ├── factories/             # Test data factories
+    │   ├── task.ts            # Task factories (frontend, store, DB formats)
+    │   ├── label.ts           # Label factories
+    │   └── user.ts            # User/session factories
+    ├── mocks/                 # Mock utilities
+    │   ├── prisma.ts          # Prisma client mocks
+    │   ├── auth.ts            # Auth/session mocks
+    │   ├── server-actions.ts  # Server action response mocks
+    │   └── local-storage.ts   # localStorage mock
+    └── assertions/            # Test assertion helpers
+        └── store.ts           # Zustand store assertions
+```
+
+### Test Utility Imports
+```typescript
+// Use @test-utils alias for all test utilities
+import {
+  // Factories
+  createMockTask,
+  createStoreTask,
+  createMockDbTask,
+  createTaskInput,
+  createMockLabel,
+  createMockUser,
+  createMockSession,
+  MOCK_USER_ID,
+  VALID_UUID,
+
+  // Server action mocks
+  mockServerSuccess,
+  mockServerError,
+  createMockCreateTaskSuccess,
+  createMockPrisma,
+
+  // Store assertions
+  resetStore,
+  resetStoreWithTasks,
+  waitForStoreCondition,
+  getStoreState,
+} from '@test-utils';
+```
+
+### Test Setup
+- `tests/setup.ts` provides global mocks for:
+  - localStorage
+  - Next.js navigation
+  - Server actions (default mocked for component tests)
+  - Rate limiting (bypassed in tests)
+
+## Scaling Considerations
+
+### Single vs. Multi-Instance Deployment
+
+**Single Instance (Current Setup):**
+- All features work as-is
+- Rate limiting is effective (in-memory)
+- Suitable for <10K tasks
+
+**Multi-Instance (Load Balanced):**
+- Requires Redis for rate limiting
+- See README.md "Rate Limiting" section for migration steps
+
+### Rate Limiting
+
+Current in-memory rate limits:
+- Label creation: 10/hour per user
+- Search operations: 20/minute per user
+
+Files containing rate limiting logic:
+- `src/app/actions/labels.ts`
+- `src/app/actions/tasks.ts`
+
+### Search Performance Scaling
+
+Current search uses PostgreSQL ILIKE:
+- <1,000 tasks: ~50-100ms (excellent)
+- 1-10K tasks: ~100-200ms (good)
+- >10K tasks: Consider full-text search (tsvector)

@@ -26,6 +26,7 @@ import {
   type UpdateLabelInput,
 } from '@/lib/schemas';
 import { sanitizeString } from '@/lib/utils';
+import { checkRateLimit, getRateLimitErrorMessage } from '@/lib/rate-limit';
 
 // ============================================================================
 // Response Types
@@ -57,49 +58,6 @@ export interface LabelResponse {
  */
 export interface LabelWithTasksResponse extends LabelResponse {
   taskIds: string[];
-}
-
-// ============================================================================
-// Rate Limiting
-// ============================================================================
-
-/**
- * In-memory rate limiting for label creation.
- * Tracks the number of labels created per user within a time window.
- *
- * KNOWN LIMITATION: This in-memory implementation will not work correctly
- * with multiple server instances (e.g., load balanced deployments) since
- * each instance maintains its own separate rate limit state.
- *
- * TODO: Migrate to Redis for multi-instance deployments. Implementation path:
- * 1. Add redis client (ioredis or @upstash/redis for serverless)
- * 2. Use INCR with EXPIRE for atomic increment-and-expire operations
- * 3. Key pattern: `rate_limit:labels:${userId}`
- * 4. Consider using a dedicated rate limiting service (e.g., Upstash Rate Limit)
- *
- * For single-instance deployments (current Phase 2A scope), this implementation
- * provides adequate protection against abuse.
- */
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const RATE_LIMIT_MAX_LABELS = 10; // Max labels per hour
-
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const userLimit = rateLimitMap.get(userId);
-
-  if (!userLimit || now > userLimit.resetTime) {
-    rateLimitMap.set(userId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
-    return true;
-  }
-
-  if (userLimit.count >= RATE_LIMIT_MAX_LABELS) {
-    return false;
-  }
-
-  userLimit.count++;
-  return true;
 }
 
 // ============================================================================
@@ -220,11 +178,12 @@ export async function createLabel(
       };
     }
 
-    // Check rate limit
-    if (!checkRateLimit(userId)) {
+    // Check rate limit (uses Redis when configured, falls back to in-memory)
+    const rateLimitResult = await checkRateLimit(userId, 'labels');
+    if (!rateLimitResult.success) {
       return {
         success: false,
-        error: 'Rate limit exceeded. You can create up to 10 labels per hour.',
+        error: getRateLimitErrorMessage('labels'),
       };
     }
 

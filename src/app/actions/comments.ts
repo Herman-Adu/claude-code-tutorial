@@ -32,6 +32,7 @@ import {
 } from '@/lib/schemas';
 import { sanitizeString } from '@/lib/utils';
 import { createNotification } from '@/app/actions/notifications';
+import { checkRateLimit, getRateLimitErrorMessage } from '@/lib/rate-limit';
 
 // ============================================================================
 // Response Types
@@ -69,59 +70,6 @@ export interface CommentResponse {
 export interface CommentsListResponse {
   comments: CommentResponse[];
   total: number;
-}
-
-// ============================================================================
-// Rate Limiting
-// ============================================================================
-
-/**
- * Rate limit configuration for comment creation.
- * In production, replace with Redis-based rate limiting.
- */
-const RATE_LIMIT = {
-  maxComments: 50,
-  windowMs: 3600000, // 1 hour
-} as const;
-
-/**
- * In-memory rate limit tracking.
- * Note: This resets on server restart. Use Redis in production.
- */
-const commentRateLimitMap = new Map<string, { count: number; resetTime: number }>();
-
-/**
- * Checks and updates rate limit for comment creation.
- * @param userId - The user ID to check
- * @returns true if request is allowed, false if rate limited
- */
-function checkCommentRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const userLimit = commentRateLimitMap.get(userId);
-
-  // Clean up expired entries periodically
-  if (commentRateLimitMap.size > 1000) {
-    for (const [key, value] of commentRateLimitMap.entries()) {
-      if (now > value.resetTime) {
-        commentRateLimitMap.delete(key);
-      }
-    }
-  }
-
-  // If no existing entry or window expired, create new entry
-  if (!userLimit || now > userLimit.resetTime) {
-    commentRateLimitMap.set(userId, { count: 1, resetTime: now + RATE_LIMIT.windowMs });
-    return true;
-  }
-
-  // Check if limit exceeded
-  if (userLimit.count >= RATE_LIMIT.maxComments) {
-    return false;
-  }
-
-  // Increment counter
-  userLimit.count++;
-  return true;
 }
 
 // ============================================================================
@@ -253,11 +201,12 @@ export async function createComment(
       return { success: false, error: 'Authentication required' };
     }
 
-    // 2. Rate limiting
-    if (!checkCommentRateLimit(userId)) {
+    // 2. Rate limiting (uses Redis when configured, falls back to in-memory)
+    const rateLimitResult = await checkRateLimit(userId, 'comments');
+    if (!rateLimitResult.success) {
       return {
         success: false,
-        error: `Rate limit exceeded. You can create up to ${RATE_LIMIT.maxComments} comments per hour.`,
+        error: getRateLimitErrorMessage('comments'),
       };
     }
 

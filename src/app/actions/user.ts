@@ -22,6 +22,7 @@ import {
   type DeleteAccountInput,
 } from '@/lib/schemas';
 import { sanitizeString } from '@/lib/utils';
+import { checkRateLimit, getRateLimitErrorMessage } from '@/lib/rate-limit';
 
 // ============================================================================
 // Response Types
@@ -53,87 +54,6 @@ export interface UserProfileResponse {
   }>;
   hasPassword: boolean;
 }
-
-// ============================================================================
-// Rate Limiting for Sensitive Operations
-// ============================================================================
-
-/**
- * In-memory rate limiting store for user actions.
- * Maps userId -> { action -> { count, resetTime } }
- *
- * Note: This is a simple in-memory implementation suitable for single-instance
- * deployments. For multi-instance/clustered deployments, use Redis or similar.
- */
-const rateLimitStore = new Map<
-  string,
-  Map<string, { count: number; resetTime: number }>
->();
-
-/**
- * Rate limiting configuration for different actions.
- */
-const RATE_LIMITS = {
-  changePassword: { max: 3, windowMs: 15 * 60 * 1000 }, // 3 attempts per 15 minutes
-  updateProfile: { max: 10, windowMs: 60 * 60 * 1000 }, // 10 updates per hour
-  deleteAccount: { max: 5, windowMs: 60 * 60 * 1000 }, // 5 attempts per hour
-} as const;
-
-/**
- * Checks if an operation should be rate limited.
- *
- * @param userId - The user ID
- * @param action - The action being performed
- * @returns true if allowed, false if rate limited
- */
-function checkRateLimit(userId: string, action: keyof typeof RATE_LIMITS): boolean {
-  const now = Date.now();
-  const config = RATE_LIMITS[action];
-
-  let userLimits = rateLimitStore.get(userId);
-  if (!userLimits) {
-    userLimits = new Map();
-    rateLimitStore.set(userId, userLimits);
-  }
-
-  const actionLimit = userLimits.get(action);
-
-  // No previous attempts or window has expired - allow and start new window
-  if (!actionLimit || now > actionLimit.resetTime) {
-    userLimits.set(action, {
-      count: 1,
-      resetTime: now + config.windowMs,
-    });
-    return true;
-  }
-
-  // Check if rate limit exceeded
-  if (actionLimit.count >= config.max) {
-    return false;
-  }
-
-  // Increment attempt counter
-  actionLimit.count++;
-  return true;
-}
-
-/**
- * Periodically cleans up expired rate limit entries to prevent memory leaks.
- * Runs every 5 minutes.
- */
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, userLimits] of rateLimitStore.entries()) {
-    for (const [action, limit] of userLimits.entries()) {
-      if (now > limit.resetTime) {
-        userLimits.delete(action);
-      }
-    }
-    if (userLimits.size === 0) {
-      rateLimitStore.delete(userId);
-    }
-  }
-}, 5 * 60 * 1000);
 
 // ============================================================================
 // Helper Functions
@@ -305,11 +225,12 @@ export async function updateProfile(
       };
     }
 
-    // Check rate limit
-    if (!checkRateLimit(userId, 'updateProfile')) {
+    // Check rate limit (uses Redis when configured, falls back to in-memory)
+    const rateLimitResult = await checkRateLimit(userId, 'updateProfile');
+    if (!rateLimitResult.success) {
       return {
         success: false,
-        error: 'Too many profile updates. Please try again later.',
+        error: getRateLimitErrorMessage('updateProfile'),
       };
     }
 
@@ -368,11 +289,12 @@ export async function changePassword(
       };
     }
 
-    // Check rate limit
-    if (!checkRateLimit(userId, 'changePassword')) {
+    // Check rate limit (uses Redis when configured, falls back to in-memory)
+    const rateLimitResult = await checkRateLimit(userId, 'changePassword');
+    if (!rateLimitResult.success) {
       return {
         success: false,
-        error: 'Too many password change attempts. Please try again later.',
+        error: getRateLimitErrorMessage('changePassword'),
       };
     }
 
@@ -471,11 +393,12 @@ export async function deleteAccount(
       };
     }
 
-    // Check rate limit
-    if (!checkRateLimit(userId, 'deleteAccount')) {
+    // Check rate limit (uses Redis when configured, falls back to in-memory)
+    const rateLimitResult = await checkRateLimit(userId, 'deleteAccount');
+    if (!rateLimitResult.success) {
       return {
         success: false,
-        error: 'Too many deletion attempts. Please try again later.',
+        error: getRateLimitErrorMessage('deleteAccount'),
       };
     }
 

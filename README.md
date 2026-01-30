@@ -316,6 +316,29 @@ docker compose build --no-cache
 npm run docker:stop && npm run docker:dev
 ```
 
+### Rate Limiting
+
+**Current Implementation:** In-memory rate limiting
+
+The application includes rate limiting for:
+- **Label Creation:** 10 labels/hour per user
+- **Search Operations:** 20 searches/minute per user
+
+**Important:** This in-memory implementation works only on single-instance deployments.
+
+For multi-instance (load-balanced) deployments, you must migrate to Redis-based rate limiting.
+
+**Migration Steps:**
+1. Install Redis client: `npm install @upstash/redis` or `npm install ioredis`
+2. Set environment variables:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+3. Update rate limiting in:
+   - `src/app/actions/labels.ts`
+   - `src/app/actions/tasks.ts`
+
+See [Performance and Maintainability Review](docs/reviews/PERFORMANCE_MAINTAINABILITY_REVIEW.md) for technical details.
+
 ---
 
 ## Project Structure
